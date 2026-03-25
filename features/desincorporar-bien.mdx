@@ -1,0 +1,142 @@
+---
+title: Desincorporar Bien
+description: Proceso de baja o desincorporación de un bien nacional del inventario de UPTAG, conforme a la normativa venezolana de bienes públicos.
+---
+
+# Desincorporar un Bien Nacional
+
+La desincorporación es el proceso administrativo mediante el cual un bien es dado de baja definitiva del inventario institucional. En el contexto venezolano de administración pública, este trámite está regulado por las normas del Servicio Nacional Integrado de Administración Aduanera y Tributaria (SENIAT) y la Ley Orgánica de Bienes Públicos.
+
+<Warning>
+  La desincorporación es una acción irreversible en el flujo normal del sistema. Una vez aplicada, el bien permanece visible en el inventario con el estatus **Desincorporado** pero ya no se considera activo para gestión.
+</Warning>
+
+## Diferencia entre estatus relacionados con la baja
+
+| Estatus | ID | Significado | Permite movimiento |
+|---|---|---|---|
+| En Proceso de Desincorporacion | 6 | El bien está en trámite administrativo de baja. Aún no ha sido dado de baja formalmente. | No |
+| Desincorporado | 4 | El bien ha sido dado de baja definitivamente del inventario. | No |
+
+<Info>
+  Use **En Proceso de Desincorporacion** (id: 6) mientras el expediente administrativo está en curso. Cambie a **Desincorporado** (id: 4) solo cuando la baja haya sido aprobada y formalizada.
+</Info>
+
+## Proceso de desincorporación
+
+La desincorporación se ejecuta a través del módulo **Registrar Movimiento** con el tipo `desincorporacion`.
+
+<Steps>
+  <Step title="Localizar el bien">
+    Navegue a **Gestión de Bienes → Registrar Movimiento** (`registrar_movimiento.php`).
+    
+    Ingrese el `codigo_bien_nacional` del bien a desincorporar y haga clic en **Buscar**. Verifique que el bien mostrado es el correcto revisando su descripción, serial y ubicación actual.
+  </Step>
+  <Step title="Seleccionar el tipo de movimiento">
+    En el campo **Tipo de Movimiento**, seleccione **Desincorporación**.
+
+    Al seleccionar este tipo, el formulario muestra automáticamente el campo **Nuevo Estatus** (`estatus_destino_id`), que debe dejarse en blanco si se quiere que el sistema aplique automáticamente el estatus `4` (Desincorporado).
+  </Step>
+  <Step title="Completar los campos requeridos">
+    Llene los siguientes campos:
+
+    | Campo | Descripción |
+    |---|---|
+    | `fecha_movimiento` | Fecha oficial de la baja. Se pre-rellena con la fecha actual |
+    | `razon` | Motivo de la desincorporación (p. ej., `Deterioro total, inservible para uso institucional`) |
+    | `numero_documento` | Número del acto administrativo o resolución de baja |
+    | `observaciones` | Detalles adicionales del expediente |
+  </Step>
+  <Step title="Confirmar y registrar">
+    Haga clic en **Registrar Movimiento**. El sistema ejecuta dentro de una transacción:
+
+    1. Inserta un registro en `movimientos` con `tipo_movimiento = 'desincorporacion'`.
+    2. Actualiza el bien en la tabla `bienes`:
+       ```sql
+       UPDATE bienes SET estatus_id = 4 WHERE id = {bien_id}
+       ```
+    3. Muestra el mensaje de confirmación y ofrece descargar el PDF del movimiento.
+  </Step>
+</Steps>
+
+## Efecto en la base de datos
+
+### Tabla `movimientos` (registro del evento)
+
+```sql
+INSERT INTO movimientos (
+    bien_id,
+    tipo_movimiento,
+    ubicacion_origen_id,
+    ubicacion_destino_id,
+    fecha_movimiento,
+    razon,
+    numero_documento,
+    observaciones,
+    usuario_registro,
+    fecha_creacion
+) VALUES (
+    {bien_id},
+    'desincorporacion',  -- valor en el form PHP
+    {ubicacion_origen_id},
+    NULL,                -- sin ubicación destino
+    '{fecha_movimiento}',
+    '{razon}',
+    '{numero_documento}',
+    '{observaciones}',
+    '{cedula_usuario}',
+    NOW()
+);
+```
+
+### Tabla `bienes` (actualización del estatus)
+
+```sql
+UPDATE bienes
+SET estatus_id = 4   -- Desincorporado
+WHERE id = {bien_id};
+```
+
+<Note>
+  El campo `activo` en la tabla `bienes` **no** cambia automáticamente con la desincorporación a través del módulo de movimientos. El bien continúa con `activo = 1`, lo que significa que sigue siendo visible en búsquedas y en el historial, pero con el estatus **Desincorporado**.
+</Note>
+
+## Campos adicionales en `bienes` para la desincorporación
+
+La tabla `bienes` incluye columnas específicas para documentar la baja que pueden actualizarse directamente desde **Editar Bien**:
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `fecha_desincorporacion` | `date` | Fecha oficial de la baja |
+| `motivo_desincorporacion` | `text` | Causa documentada de la desincorporación |
+| `documento_desincorporacion` | `varchar(255)` | Referencia al archivo o número del acto administrativo |
+
+## Cómo aparece el bien después de la desincorporación
+
+- **Búsqueda de Bienes**: el bien sigue siendo visible en `buscar.php` (ya que `activo = 1`). Aparece con el badge **Desincorporado** resaltado en rojo.
+- **Historial de movimientos**: el último movimiento registrado será de tipo `Desincorporacion`.
+- **Dashboard**: se contabiliza en el contador _"Total Desincorporados"_ del panel principal:
+  ```sql
+  SELECT COUNT(*) AS total FROM bienes WHERE estatus_id = 4 AND activo = 1
+  ```
+- **Filtro en búsqueda**: puede filtrar específicamente los bienes desincorporados seleccionando el estatus **Desincorporado** en el filtro de búsqueda avanzada.
+
+## Flujo alternativo: proceso previo a la baja
+
+Para bienes que requieren un trámite administrativo antes de la baja formal:
+
+<Steps>
+  <Step title="Cambiar a 'En Proceso de Desincorporacion'">
+    Registre un movimiento de tipo **Cambio de Estatus** y seleccione **En Proceso de Desincorporacion** (id: 6) como nuevo estatus.
+  </Step>
+  <Step title="Completar el expediente">
+    Durante el trámite, el bien queda con estatus 6. Permanece visible en el inventario y no acepta nuevos movimientos de traslado.
+  </Step>
+  <Step title="Formalizar la baja">
+    Una vez aprobado el expediente, registre un movimiento de tipo **Desincorporación** para cambiar el estatus al 4 definitivo.
+  </Step>
+</Steps>
+
+<Tip>
+  Guarde el número del acto administrativo en el campo `numero_documento` del movimiento de desincorporación. Este dato queda almacenado en `movimientos.numero_documento` y puede consultarse en el historial del bien desde **Búsqueda de Bienes**.
+</Tip>

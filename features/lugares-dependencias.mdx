@@ -1,0 +1,356 @@
+---
+title: 'Lugares y dependencias'
+description: 'Gestiona ubicaciones físicas, dependencias institucionales y la asignación de responsables en el inventario de bienes nacionales de UPTAG.'
+---
+
+Este módulo cubre tres conceptos relacionados que estructuran el inventario de forma física y administrativa:
+
+<CardGroup cols={3}>
+  <Card title="Ubicaciones" icon="map-pin">
+    Espacios físicos donde residen los bienes: oficinas, aulas, laboratorios, depósitos.
+  </Card>
+  <Card title="Dependencias" icon="building">
+    Unidades administrativas o académicas propietarias o custodias de los bienes.
+  </Card>
+  <Card title="Responsables" icon="user-check">
+    Personas asignadas como custodias de cada ubicación.
+  </Card>
+</CardGroup>
+
+---
+
+## Ubicaciones
+
+**Navegar a:** Sidebar → **Categorías** → **Lugares y dependencias** (pestaña **Ubicaciones**)
+
+### Tabla `ubicaciones`
+
+Cada ubicación pertenece a una dependencia y puede tener un responsable asignado directamente en el registro.
+
+```sql
+CREATE TABLE `ubicaciones` (
+  `id`                  int(11)      NOT NULL AUTO_INCREMENT,
+  `dependencia_id`      int(11)      NOT NULL,          -- FK a dependencias.id
+  `nombre`              varchar(150) NOT NULL,
+  `descripcion`         text         DEFAULT NULL,       -- Código de bien nacional / referencia
+  `responsable`         varchar(200) DEFAULT NULL,
+  `telefono`            varchar(50)  DEFAULT NULL,
+  `email`               varchar(100) DEFAULT NULL,
+  `activo`              tinyint(1)   DEFAULT 1,
+  `fecha_creacion`      timestamp    NOT NULL DEFAULT current_timestamp(),
+  `fecha_actualizacion` timestamp    NOT NULL DEFAULT current_timestamp()
+                                               ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  CONSTRAINT `ubicaciones_ibfk_1`
+    FOREIGN KEY (`dependencia_id`) REFERENCES `dependencias` (`id`)
+);
+```
+
+#### Descripción de columnas
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | `int` AUTO_INCREMENT | Identificador único |
+| `dependencia_id` | `int` NOT NULL | Dependencia a la que pertenece la ubicación |
+| `nombre` | `varchar(150)` | Nombre del espacio físico |
+| `descripcion` | `text` | Código de referencia del bien nacional asociado (ej. `0101`, `010201`) |
+| `responsable` | `varchar(200)` | Nombre del responsable de la ubicación |
+| `telefono` | `varchar(50)` | Teléfono de contacto |
+| `email` | `varchar(100)` | Correo de contacto |
+| `activo` | `tinyint(1)` | `1` = activa, `0` = inactiva |
+
+<Note>
+El campo `descripcion` se usa en la práctica como el código de bien nacional de la ubicación (ej. `0101` para OFICINA DEL RECTOR, `030104` para SERVICIOS ADMINISTRATIVOS). Este código refleja la estructura jerárquica numérica del inventario institucional.
+</Note>
+
+### Estructura jerárquica de ubicaciones
+
+Las ubicaciones de UPTAG siguen un esquema de codificación numérica que representa la jerarquía física. El código se construye concatenando los niveles:
+
+```
+Dependencia  Área      Sub-área    Espacio
+    01         01          01        02
+    │          │           │         │
+    └── Rectoría           │         └── Archivo Rectoría
+               └── Oficina del Rector
+```
+
+Ejemplos de la data de RECTORÍA:
+
+| Código | Ubicación |
+|---|---|
+| `0101` | OFICINA DEL RECTOR |
+| `010101` | SECRETARIA RECTORÍA |
+| `01010102` | ARCHIVO RECTORÍA |
+| `01010103` | DEPÓSITO RECTORÍA |
+| `010102` | SALA DE REUNIONES DE RECTORÍA |
+
+### Tipos de ubicación
+
+Al registrar una ubicación en `registrar_ubicacion.php`, debes seleccionar un tipo:
+
+<CardGroup cols={2}>
+  <Card title="PNF" icon="graduation-cap">
+    Programa Nacional de Formación. Unidades académicas por programa.
+  </Card>
+  <Card title="Sede" icon="landmark">
+    Sede principal o extensiones universitarias.
+  </Card>
+  <Card title="Edificio" icon="building">
+    Edificios del campus universitario.
+  </Card>
+  <Card title="Piso / Nivel" icon="layer-group">
+    Niveles dentro de un edificio.
+  </Card>
+  <Card title="Oficina" icon="briefcase">
+    Oficinas administrativas o académicas.
+  </Card>
+  <Card title="Aula" icon="chalkboard">
+    Salas de clases.
+  </Card>
+  <Card title="Laboratorio" icon="flask">
+    Laboratorios de investigación o prácticas.
+  </Card>
+  <Card title="Otro" icon="ellipsis">
+    Sala de reuniones, área común, depósito, etc.
+  </Card>
+</CardGroup>
+
+### Registrar una ubicación
+
+**Navegar a:** Sidebar → **Categorías** → **Registrar ubicación** (`registrar_ubicacion.php`)
+
+<Steps>
+  <Step title="Completa los datos obligatorios">
+    Los campos marcados con asterisco son requeridos por el formulario:
+
+    | Campo | Obligatorio | Descripción |
+    |---|---|---|
+    | **Nombre** | Sí | Nombre del espacio físico (máx. 150 caracteres) |
+    | **Tipo** | Sí | Selecciona uno de los tipos listados arriba |
+    | **Dependencia** | No | Vincula la ubicación a una dependencia |
+    | **Dirección / Referencia** | No | Ej.: *Primer piso, edificio principal* |
+    | **Responsable** | No | Nombre del responsable |
+    | **Teléfono** | No | Ej.: `0251-1234567` |
+    | **Observaciones** | No | Información adicional |
+  </Step>
+  <Step title="Envía el formulario">
+    Haz clic en **Registrar Ubicación**. El sistema verifica que no exista otra ubicación con el mismo nombre antes de insertar.
+
+    ```php
+    // Validación de nombre único en registrar_ubicacion.php
+    $stmt_check = $conn->prepare(
+      "SELECT id FROM ubicaciones WHERE nombre = ?"
+    );
+    ```
+  </Step>
+  <Step title="Verifica en el listado">
+    Vuelve a **Lugares y dependencias** y confirma que la nueva ubicación aparece en la pestaña **Ubicaciones**.
+  </Step>
+</Steps>
+
+<Warning>
+El campo `dependencia_id` es `NOT NULL` en la definición de la tabla. Asegúrate de que existan dependencias registradas antes de crear ubicaciones.
+</Warning>
+
+### Datos de ejemplo
+
+El archivo `ubicaciones_dependencias.sql` incluye más de 500 ubicaciones precargadas para las dependencias de UPTAG. Los primeros registros de cada dependencia ilustran el patrón:
+
+```sql
+-- RECTORÍA (dependencia_id = 1)
+INSERT INTO ubicaciones (dependencia_id, nombre, descripcion, activo) VALUES
+  (1, 'OFICINA DEL RECTOR',            '0101',   1),
+  (1, 'SECRETARIA RECTORIA',           '010101', 1),
+  (1, 'ARCHIVO RECTORIA',              '01010102', 1);
+
+-- VICERECTORADO ACADÉMICO (dependencia_id = 2)
+  (2, 'VICERECTORADO ACADEMICO JEFATURA', '0201',   1),
+  (2, 'COORDINACION DE BIBLIOTECAS',      '0203',   1);
+
+-- OGA (dependencia_id = 3)
+  (3, 'UNIDAD DE BIENES NACIONALES',    '03010404', 1),
+  (3, 'CONTABILIDAD',                   '03010401', 1);
+```
+
+---
+
+## Dependencias
+
+**Navegar a:** Sidebar → **Categorías** → **Lugares y dependencias** (pestaña **Dependencias**)
+
+### Tabla `dependencias`
+
+```sql
+CREATE TABLE `dependencias` (
+  `id`                  int(11)      NOT NULL AUTO_INCREMENT,
+  `nombre`              varchar(150) NOT NULL,
+  `codigo`              varchar(20)  DEFAULT NULL,
+  `tipo`                enum('Administrativa','Academica','PNF','Laboratorio','Otra')
+                                     DEFAULT 'Otra',
+  `responsable_nombre`  varchar(150) DEFAULT NULL,
+  `responsable_cedula`  varchar(20)  DEFAULT NULL,
+  `direccion`           varchar(255) DEFAULT NULL,
+  `ciudad`              varchar(100) DEFAULT NULL,
+  `estado`              varchar(100) DEFAULT NULL,
+  `activo`              tinyint(1)   DEFAULT 1,
+  `fecha_creacion`      timestamp    NOT NULL DEFAULT current_timestamp(),
+  `fecha_actualizacion` timestamp    NOT NULL DEFAULT current_timestamp()
+                                               ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_dependencia_codigo` (`codigo`)
+);
+```
+
+#### Descripción de columnas
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | `int` AUTO_INCREMENT | Identificador único |
+| `nombre` | `varchar(150)` | Nombre oficial de la dependencia |
+| `codigo` | `varchar(20)` UNIQUE | Código de dos dígitos (ej. `01`, `02`) |
+| `tipo` | `enum` | Clasifica la dependencia: `Administrativa`, `Academica`, `PNF`, `Laboratorio`, `Otra` |
+| `responsable_nombre` | `varchar(150)` | Nombre del responsable institucional |
+| `responsable_cedula` | `varchar(20)` | Cédula del responsable institucional |
+| `direccion` | `varchar(255)` | Dirección postal |
+| `ciudad` / `estado` | `varchar(100)` | Localización geográfica |
+| `activo` | `tinyint(1)` | `1` = activa, `0` = inactiva |
+
+### Tipos de dependencia
+
+<Tabs>
+  <Tab title="Administrativa">
+    Unidades de gestión institucional: Rectoría, OGA, Auditoría Interna, OTIC, etc.
+  </Tab>
+  <Tab title="Academica">
+    Vicerectorado Académico, Coordinaciones académicas, CIDILG, CASRCE.
+  </Tab>
+  <Tab title="PNF">
+    Programas Nacionales de Formación: PNF Mecánica, PNF Electricidad, PNF Contaduría, etc.
+  </Tab>
+  <Tab title="Laboratorio">
+    Laboratorios de investigación o docencia con gestión autónoma de bienes.
+  </Tab>
+  <Tab title="Otra">
+    Sindicatos, centros estudiantiles, terceros y cualquier unidad no clasificada en los tipos anteriores.
+  </Tab>
+</Tabs>
+
+### Dependencias predeterminadas
+
+Al instalar la base de datos se cargan nueve dependencias. Las primeras tres son las más comunes en el inventario:
+
+| Código | Nombre | Tipo |
+|---|---|---|
+| `01` | RECTORÍA - UPTAG | Administrativa |
+| `02` | VICERECTORADO ACADÉMICO | Academica |
+| `03` | OFICINA DE GESTIÓN ADMINISTRATIVA (OGA) | Administrativa |
+| `04` | DIVISIÓN DE PLANIFICACIÓN Y DESARROLLO | Administrativa |
+| `05` | SINDICATOS | Otra |
+| `06` | CENTRO DE ESTUDIANTES | Otra |
+| `07` | AUDITORÍA INTERNA | Administrativa |
+| `08` | DEPÓSITO GENERAL | Administrativa |
+| `09` | TERCEROS | Otra |
+
+### Relación con ubicaciones y bienes
+
+```
+dependencias
+    │
+    └── ubicaciones (dependencia_id)
+              │
+              └── bienes (ubicacion_id)
+```
+
+El listado de dependencias en `lugares_dependencias.php` muestra el conteo de ubicaciones asociadas a cada una mediante un `LEFT JOIN` con conteo:
+
+```php
+// Consulta en lugares_dependencias.php
+$result = $conn->query(
+  "SELECT d.*, COUNT(u.id) as total_ubicaciones
+   FROM dependencias d
+   LEFT JOIN ubicaciones u ON d.id = u.dependencia_id
+   GROUP BY d.id
+   ORDER BY d.nombre ASC"
+);
+```
+
+---
+
+## Asignar responsables
+
+**Navegar a:** Sidebar → **Categorías** → **Agregar responsables** (`editar_lugares_dependencias.php`)
+
+Esta pantalla permite asignar o actualizar el responsable de cada ubicación directamente desde una tabla editable. Es el único lugar donde se modifica el campo `responsable` de una ubicación sin tener que volver a crear el registro desde cero.
+
+### Cómo asignar un responsable
+
+<Steps>
+  <Step title="Ubica la fila de la ubicación">
+    Usa el buscador de la página para filtrar por nombre de ubicación. La tabla muestra `TOTAL UBICACIONES`, `DEPENDENCIAS`, `CON RESPONSABLE` y `SIN RESPONSABLE` en las tarjetas de estadísticas.
+  </Step>
+  <Step title="Edita los campos en la tabla">
+    Los campos **Responsable**, **Teléfono** y **Email** son editables directamente en la fila. Haz clic sobre el campo, escribe el valor y pasa al siguiente.
+
+    ```php
+    // Campos enviados al servidor (editar_lugares_dependencias.php)
+    $responsable = trim($_POST['responsable'] ?? '');
+    $telefono    = trim($_POST['telefono']    ?? '');
+    $email       = trim($_POST['email']       ?? '');
+    ```
+  </Step>
+  <Step title="Guarda con el botón ✓">
+    Haz clic en el botón **✓** al final de la fila para guardar. El sistema valida que el campo **Responsable** no esté vacío y luego ejecuta:
+
+    ```php
+    $sql = "UPDATE ubicaciones
+            SET responsable = ?,
+                telefono    = ?,
+                email       = ?
+            WHERE id = ?";
+    ```
+  </Step>
+</Steps>
+
+<Note>
+El nombre del responsable es obligatorio al guardar desde esta pantalla. Teléfono y email son opcionales.
+</Note>
+
+### Impacto en el dashboard
+
+El widget **Responsables** del dashboard cuenta las ubicaciones que tienen el campo `responsable` con un valor no nulo. Mantener esta información actualizada asegura que el conteo del dashboard refleje la cobertura real de custodia.
+
+```php
+// Cálculo de estadísticas en editar_lugares_dependencias.php
+$con_responsable    = count(array_filter($todas_ubicaciones,
+  fn($u) => !empty($u['responsable'])));
+$sin_responsable    = count(array_filter($todas_ubicaciones,
+  fn($u) =>  empty($u['responsable'])));
+```
+
+### Tabla `responsables` (entidad separada)
+
+Además del campo `responsable` en `ubicaciones`, el sistema cuenta con una tabla `responsables` independiente para registrar personas con cédula, cargo y vínculos formales a dependencias y ubicaciones:
+
+```sql
+CREATE TABLE `responsables` (
+  `id`            int(11)     NOT NULL AUTO_INCREMENT,
+  `cedula`        varchar(20) NOT NULL,
+  `nombres`       varchar(100) NOT NULL,
+  `apellidos`     varchar(100) NOT NULL,
+  `cargo`         varchar(100) DEFAULT NULL,
+  `dependencia_id`int(11)     DEFAULT NULL,
+  `ubicacion_id`  int(11)     DEFAULT NULL,
+  `telefono`      varchar(50) DEFAULT NULL,
+  `email`         varchar(100)DEFAULT NULL,
+  `activo`        tinyint(1)  DEFAULT 1,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_responsable_cedula` (`cedula`)
+);
+```
+
+Esta tabla se usa en los movimientos de bienes (`movimientos.responsable_origen_id` / `responsable_destino_id`) y en el control perceptivo.
+
+<Tip>
+Usa `editar_lugares_dependencias.php` para la asignación rápida de responsables por nombre. Usa la tabla `responsables` cuando necesites registrar formalmente a una persona con cédula y cargo para los actos administrativos de movimiento.
+</Tip>

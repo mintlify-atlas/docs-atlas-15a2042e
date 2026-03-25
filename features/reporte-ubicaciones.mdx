@@ -1,0 +1,138 @@
+---
+title: Reporte por Ubicación
+description: Genera y exporta en PDF un resumen de todas las ubicaciones físicas de UPTAG con la cantidad de bienes asignados y su valor total, con filtros por tipo de ubicación y dependencia.
+---
+
+El reporte de ubicaciones agrupa el inventario por espacio físico, mostrando cuántos bienes están asignados a cada ubicación y el valor total acumulado. Es útil para auditorías de custodios, verificaciones físicas y planificación de espacios.
+
+## Acceso
+
+Navegue en el menú lateral a **Reportes** → **Reporte por Ubicación** (`generar_reporte_ubicaciones.php`).
+
+<Warning>
+El enlace a este reporte está actualmente **comentado** en `home.php` y no aparece en el menú lateral:
+
+```html
+<!-- <li><a href="generar_reporte_ubicaciones.php"><i class="zmdi zmdi-pin"></i> Reporte por Ubicación</a></li> -->
+```
+
+Para acceder, ingrese la URL directamente en el navegador: `generar_reporte_ubicaciones.php`. Un administrador debe descomentar la línea correspondiente en `home.php` para restaurar el acceso desde el menú.
+</Warning>
+
+## Contenido del reporte
+
+Cada fila del reporte corresponde a un registro de la tabla `ubicaciones`, enriquecido con el conteo de bienes activos asignados a ese espacio:
+
+| Campo | Origen | Descripción |
+|---|---|---|
+| Nº | — | Numeración correlativa |
+| Nombre de Ubicación | `ubicaciones.nombre` | Nombre del espacio físico |
+| Tipo | `ubicaciones.tipo` | Tipo de ubicación (ver lista abajo) |
+| Dependencia | `dependencias.nombre` | Dependencia a la que pertenece |
+| Dirección/Referencia | `ubicaciones.direccion` | Descripción física o referencia de localización |
+| Responsable | `ubicaciones.responsable` | Persona responsable de la ubicación |
+| Teléfono | `ubicaciones.telefono` | Teléfono de contacto del responsable |
+| Bienes | Conteo desde `bienes WHERE ubicacion_id = ? AND activo = 1` | Cantidad de bienes activos asignados |
+| Valor Bs. | Suma de `bienes.valor_original` donde `ubicacion_id = ?` | Valor total de los bienes de la ubicación |
+| Estado | `ubicaciones.activo` | Activo / Inactivo |
+
+El pie de tabla muestra los **totales globales**: número de ubicaciones, bienes totales asignados y valor total en Bs.
+
+### Tipos de ubicación disponibles
+
+| Valor interno | Etiqueta visible |
+|---|---|
+| `pnf` | Programas Nacionales de Formación (PNF) |
+| `sede` | Sedes |
+| `edificio` | Edificios |
+| `piso` | Pisos/Niveles |
+| `oficina` | Oficinas |
+| `aula` | Aulas |
+| `laboratorio` | Laboratorios |
+| `sala_reunion` | Salas de Reuniones |
+| `area_comun` | Áreas Comunes |
+| `otro` | Otros |
+
+## Filtros disponibles
+
+<CardGroup cols={2}>
+  <Card title="Tipo de ubicación" icon="building">
+    Desplegable con los tipos definidos en el sistema. Filtra directamente por `ubicaciones.tipo`. Opción por defecto: **Todos los tipos**.
+  </Card>
+  <Card title="Dependencia" icon="sitemap">
+    Desplegable cargado desde `dependencias WHERE activo = 1 ORDER BY nombre`. Filtra por `ubicaciones.dependencia_id`. Opción por defecto: **Todas las dependencias**.
+  </Card>
+</CardGroup>
+
+<Note>
+Si la tabla `ubicaciones` no existe en la base de datos, el sistema muestra el mensaje: *"La tabla de ubicaciones no existe aún. Debe registrar ubicaciones primero."*
+</Note>
+
+## Cómo generar el reporte
+
+<Steps>
+  <Step title="Seleccionar el tipo de ubicación (opcional)">
+    Use el desplegable **Tipo de Ubicación** para ver únicamente aulas, laboratorios, oficinas u otro tipo específico. Déjelo en **Todos los tipos** para un reporte completo.
+  </Step>
+  <Step title="Seleccionar la dependencia (opcional)">
+    Use el desplegable **Dependencia** para restringir el reporte a una unidad organizativa específica. Si no hay dependencias registradas, el campo aparece vacío y se ignora el filtro.
+  </Step>
+  <Step title="Ejecutar la búsqueda">
+    Haga clic en **Buscar**. La pantalla muestra tres indicadores estadísticos: total de ubicaciones encontradas, bienes asignados y valor total en Bs. Debajo aparece la tabla de detalle por ubicación.
+  </Step>
+  <Step title="Descargar el PDF">
+    Con resultados visibles, haga clic en **Descargar PDF**. El archivo se descarga con el nombre `reporte_ubicaciones_YYYY-MM-DD_HH-mm-ss.pdf`.
+  </Step>
+</Steps>
+
+## Generación del PDF
+
+El PDF es producido por `reporte_ubicaciones.php` mediante **DOMPDF** (`librerias/dompdf/`). Los datos se envían como `resultados_json` junto con `filtro_tipo` y `filtro_dependencia`.
+
+Formato del documento generado:
+
+- **Papel:** A4 horizontal (landscape), márgenes de 15 mm.
+- **Estadísticas en el encabezado:** tres recuadros con total de ubicaciones, bienes en ubicaciones y valor total.
+- **Tabla de detalle:** todas las columnas del reporte incluyendo teléfono del responsable.
+- **Pie de página:** identificación del sistema y año.
+
+```php
+$dompdf->setPaper('A4', 'landscape');
+$dompdf->render();
+$dompdf->stream($nombre_archivo, ['attachment' => true]);
+```
+
+---
+
+## Reportes adicionales de referencia
+
+Además del reporte de ubicaciones, el sistema incluye dos vistas de reporte PDF de apoyo que se generan desde las páginas de gestión de categorías y lugares:
+
+### Reporte de categorías (`reporte_categorias.php`)
+
+Genera un PDF en **A4 portrait** con la lista de todas las categorías de bienes registradas. Cada fila contiene:
+
+| Campo | Columna BD | Descripción |
+|---|---|---|
+| ID | `categorias.id` | Identificador interno |
+| Código | `categorias.codigo` | Código de la categoría |
+| Nombre | `categorias.nombre` / `denominacion` | Nombre o denominación |
+| Descripción | `categorias.descripcion` | Descripción de la categoría |
+| Cuenta Pptaria. | `categorias.cuenta_presupuestaria` | Cuenta presupuestaria asociada |
+| Estatus | `categorias.activo` | Activo / Inactivo |
+
+El reporte acepta un término de búsqueda (`buscar`) para filtrar por nombre y recibe los datos a través del campo `resultados_json`. El nombre del archivo descargado sigue el patrón `reporte_categorias_YYYY-MM-DD_HH-mm-ss.pdf`.
+
+### Reporte de lugares y dependencias (`reporte_lugares_dependencias.php`)
+
+Genera un PDF en **A4 portrait** con dos secciones diferenciadas:
+
+**Sección Ubicaciones** — columnas: Nombre, Código BN (`codigo_bien_nacional`), Dependencia (`nombre_dependencia`), Responsable, Estatus.
+
+**Sección Dependencias** — columnas: Nombre, Estatus.
+
+Ambas secciones reciben sus datos como un único objeto JSON en el campo `datos_json` con las claves `ubicaciones` y `dependencias`. El archivo generado se llama `reporte_lugares_dependencias_YYYY-MM-DD_HH-mm-ss.pdf`.
+
+<Tip>
+Use el reporte de categorías para verificar la coherencia de la clasificación presupuestaria antes de una auditoría SIGECOF. Use el reporte de lugares y dependencias para validar la estructura organizativa registrada frente al organigrama institucional vigente.
+</Tip>

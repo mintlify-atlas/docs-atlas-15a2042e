@@ -1,0 +1,195 @@
+---
+title: Installation
+description: Set up the Sistema de Bienes Nacionales UPTAG on a local XAMPP environment or a production server.
+---
+
+## System requirements
+
+<CardGroup cols={2}>
+  <Card title="PHP 8+" icon="php">
+    The system requires PHP 8.0 or later. PHP 8.1+ is recommended for production.
+  </Card>
+  <Card title="MySQL / MariaDB" icon="database">
+    Any recent version of MySQL or MariaDB. XAMPP ships with MariaDB, which is fully compatible.
+  </Card>
+  <Card title="XAMPP (recommended)" icon="server">
+    XAMPP bundles Apache, PHP, and MariaDB for local development on Windows, macOS, or Linux.
+  </Card>
+  <Card title="Modern browser" icon="globe">
+    Chrome, Firefox, Edge, or Safari — any browser released in the last three years.
+  </Card>
+</CardGroup>
+
+---
+
+## Option 1: Local development with XAMPP
+
+<Steps>
+  <Step title="Download and install XAMPP">
+    Download XAMPP from [https://www.apachefriends.org](https://www.apachefriends.org) and run the installer.
+    The default installation path is:
+    - **Windows**: `C:\xampp\`
+    - **macOS / Linux**: `/opt/lampp/`
+  </Step>
+
+  <Step title="Clone or download the repository">
+    Place the project folder inside the XAMPP web root:
+
+    ```bash
+    # Windows
+    cd C:\xampp\htdocs
+    git clone https://github.com/Irving2223/SISTEMA_BIENES_NACIONALES_UPTAG.git bienes_nacionales
+
+    # macOS / Linux
+    cd /opt/lampp/htdocs
+    git clone https://github.com/Irving2223/SISTEMA_BIENES_NACIONALES_UPTAG.git bienes_nacionales
+    ```
+
+    If you downloaded a ZIP file instead, extract it so the folder structure is:
+    ```
+    htdocs/
+    └── bienes_nacionales/
+        ├── conexion.php
+        ├── Loggin.php
+        ├── home.php
+        └── ...
+    ```
+  </Step>
+
+  <Step title="Configure the database connection">
+    Open `conexion.php` in the project root and verify the credentials match your environment:
+
+    ```php
+    <?php
+    $host = "localhost";
+    $user = "root";
+    $pass = "";                        // XAMPP default: empty password
+    $db   = "bienes_nacionales_uptag";  // must match the imported database name
+
+    $conn = mysqli_connect($host, $user, $pass, $db);
+    ?>
+    ```
+
+    <Note>
+      XAMPP ships with a `root` user and an empty password by default. If you have changed the MariaDB root password, update `$pass` accordingly.
+    </Note>
+  </Step>
+
+  <Step title="Import the database">
+    See the [Database setup](/getting-started/database-setup) page for the full import instructions. In short:
+
+    ```bash
+    mysql -u root bienes_nacionales_uptag < bd_bienes_nacionales.sql
+    ```
+  </Step>
+
+  <Step title="Start Apache and MySQL in XAMPP">
+    Open the **XAMPP Control Panel** and click **Start** next to both **Apache** and **MySQL**.
+
+    Both status indicators should turn green before you continue.
+  </Step>
+
+  <Step title="Open the system in your browser">
+    Navigate to:
+
+    ```
+    http://localhost/bienes_nacionales/
+    ```
+
+    You should see the login page. Use the default admin credentials described in [Login](/getting-started/login).
+  </Step>
+</Steps>
+
+---
+
+## Option 2: Production server
+
+<Warning>
+  Never run a production installation with the default `root` / empty-password database credentials. Create a dedicated MySQL user with the minimum required privileges.
+</Warning>
+
+<Steps>
+  <Step title="Upload the project files">
+    Copy the project directory to your server's document root, for example `/var/www/html/bienes_nacionales/`, using SCP, SFTP, or your deployment pipeline.
+  </Step>
+
+  <Step title="Create a restricted database user">
+    ```sql
+    CREATE DATABASE bienes_nacionales_uptag CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+    CREATE USER 'bienes_user'@'localhost' IDENTIFIED BY 'StrongPassword!';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON bienes_nacionales_uptag.* TO 'bienes_user'@'localhost';
+    FLUSH PRIVILEGES;
+    ```
+  </Step>
+
+  <Step title="Update conexion.php">
+    ```php
+    <?php
+    $host = "localhost";
+    $user = "bienes_user";
+    $pass = "StrongPassword!";
+    $db   = "bienes_nacionales_uptag";
+
+    $conn = mysqli_connect($host, $user, $pass, $db);
+    ?>
+    ```
+  </Step>
+
+  <Step title="Configure the Apache virtual host">
+    Create a virtual host entry in your Apache configuration:
+
+    ```apache
+    <VirtualHost *:443>
+        ServerName bienes.uptag.edu.ve
+        DocumentRoot /var/www/html/bienes_nacionales
+
+        <Directory /var/www/html/bienes_nacionales>
+            AllowOverride All
+            Require all granted
+        </Directory>
+
+        SSLEngine on
+        SSLCertificateFile    /etc/ssl/certs/uptag.crt
+        SSLCertificateKeyFile /etc/ssl/private/uptag.key
+    </VirtualHost>
+    ```
+  </Step>
+
+  <Step title="Set file permissions">
+    ```bash
+    chown -R www-data:www-data /var/www/html/bienes_nacionales
+    chmod -R 755 /var/www/html/bienes_nacionales
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Enable HTTPS in production. The password recovery flow sends verification codes by email; transmitting credentials over plain HTTP is a security risk.
+</Tip>
+
+---
+
+## Project structure reference
+
+```
+bienes_nacionales/
+├── assets/               # CSS, images, vendor libraries
+├── css/                  # Bootstrap and Material styles
+├── fonts/                # Montserrat font (static TTF files)
+├── js/                   # jQuery and Bootstrap JS
+├── librerias/            # DOMPDF (PDF generation)
+├── conexion.php          # Database connection config
+├── Loggin.php            # Login form and authentication logic
+├── header.php            # Session guard, sidebar, navbar
+├── home.php              # Main dashboard
+├── buscar.php            # Asset search
+├── registrar_bien.php    # Register a new asset
+├── editar_bien.php       # Edit an existing asset
+├── registrar_movimiento.php  # Record an asset movement
+├── gestion_usuarios.php  # User management (admin only)
+├── configuracion.php     # System configuration (admin only)
+├── perfil.php            # User profile and password change
+├── recuperar_contraseña.php  # Password recovery
+├── salir.php             # Logout
+└── bd_bienes_nacionales.sql  # Full database schema + seed data
+```

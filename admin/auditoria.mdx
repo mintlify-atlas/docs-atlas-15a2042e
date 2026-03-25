@@ -1,0 +1,216 @@
+---
+title: Auditoría del sistema
+description: Consulta el registro completo de actividad del sistema — quién hizo qué, cuándo y desde qué dirección IP. Función exclusiva para el rol Administrador.
+---
+
+<Warning>
+El acceso a `auditoria_sistema.php` está protegido por la misma verificación de sesión que el resto de las páginas administrativas. Si `$_SESSION['usuario']['rol'] !== 'Administrador'`, el sistema ejecuta `header("Location: index.php")` de inmediato.
+</Warning>
+
+## ¿Qué es la auditoría?
+
+Cada operación significativa que ocurre en el sistema — inicio de sesión, creación de bienes, modificaciones, eliminaciones — genera automáticamente un registro en la tabla `auditoria`. Esto permite a los administradores responder con precisión a preguntas como:
+
+- ¿Quién incorporó o desincorporó un bien?
+- ¿Desde qué IP se realizó una modificación?
+- ¿Qué datos tenía un registro antes de ser editado?
+
+<Tip>
+Para el cumplimiento normativo venezolano en materia de bienes nacionales (Ley Orgánica de Bienes Públicos y Resolución del MPPEF), contar con un registro de auditoría inalterable facilita las inspecciones de la Contraloría General de la República y permite demostrar la trazabilidad de cada movimiento de activos.
+</Tip>
+
+---
+
+## Cómo acceder
+
+Navega a **Configuración** en el menú lateral y haz clic en el botón **Ver Registro** de la sección _Auditoría del Sistema_. El sistema carga directamente `auditoria_sistema.php`.
+
+---
+
+## Estructura de la tabla `auditoria`
+
+```sql
+CREATE TABLE `auditoria` (
+  `id`               int(11)      NOT NULL AUTO_INCREMENT,
+  `tabla_afectada`   varchar(50)  NOT NULL,
+  `accion`           enum('INSERT','UPDATE','DELETE') NOT NULL,
+  `usuario_cedula`   varchar(20)  DEFAULT NULL,
+  `datos_anteriores` varchar(2000) DEFAULT NULL,
+  `datos_nuevos`     varchar(2000) DEFAULT NULL,
+  `ip_address`       varchar(45)  DEFAULT NULL,
+  `fecha_accion`     timestamp    NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `usuario_cedula` (`usuario_cedula`),
+  CONSTRAINT `auditoria_ibfk_1`
+    FOREIGN KEY (`usuario_cedula`) REFERENCES `usuarios` (`cedula`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### Descripción de cada columna
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | `int AUTO_INCREMENT` | Identificador único del evento |
+| `tabla_afectada` | `varchar(50)` | Nombre de la tabla sobre la que se actuó (p. ej. `bienes`, `movimientos`, `usuarios`) |
+| `accion` | `enum` | Tipo de operación: `INSERT`, `UPDATE` o `DELETE` |
+| `usuario_cedula` | `varchar(20)` | Cédula del usuario que realizó la acción. `NULL` si el usuario fue eliminado (FK con `ON DELETE SET NULL`) |
+| `datos_anteriores` | `varchar(2000)` | Estado del registro **antes** de la modificación, en formato JSON. Solo aplica para `UPDATE` y `DELETE` |
+| `datos_nuevos` | `varchar(2000)` | Estado del registro **después** de la operación, en formato JSON. Solo aplica para `INSERT` y `UPDATE` |
+| `ip_address` | `varchar(45)` | Dirección IP del cliente al momento del evento (`$_SERVER['REMOTE_ADDR']`). Soporta IPv6 |
+| `fecha_accion` | `timestamp` | Fecha y hora exacta del evento, con zona horaria `+00:00` |
+
+---
+
+## Tipos de evento registrados
+
+<CardGroup cols={2}>
+  <Card title="INSERT" icon="plus">
+    Nuevo registro creado en cualquier tabla del sistema. Se guarda el estado inicial en `datos_nuevos`.
+  </Card>
+  <Card title="UPDATE" icon="pencil">
+    Modificación de un registro existente. Se guardan tanto `datos_anteriores` como `datos_nuevos` para comparar el cambio.
+  </Card>
+  <Card title="DELETE" icon="trash">
+    Eliminación de un registro. Se guarda el estado final en `datos_anteriores` antes de borrarlo.
+  </Card>
+  <Card title="Eventos de sesión" icon="key">
+    Los inicios de sesión exitosos (`login_exitoso`) y fallidos (`login_fallido`) también quedan registrados junto con la IP de origen. El campo `accion` puede contener estos valores literales adicionales a los del `enum` estándar.
+  </Card>
+</CardGroup>
+
+### Colores de badge por tipo de acción
+
+La función `obtenerColorAccion()` asigna un color visual a cada tipo de evento en la tabla de resultados:
+
+```php
+function obtenerColorAccion($accion) {
+    $colores = [
+        'INSERT'           => '#28a745',  // Verde
+        'REGISTRO'         => '#28a745',  // Verde
+        'UPDATE'           => '#ffc107',  // Amarillo
+        'EDICION'          => '#ffc107',  // Amarillo
+        'DELETE'           => '#dc3545',  // Rojo
+        'ELIMINAR'         => '#dc3545',  // Rojo
+        'SELECT'           => '#17a2b8',  // Azul claro
+        'CONSULTA'         => '#17a2b8',  // Azul claro
+        'LOGIN'            => '#007bff',  // Azul
+        'INICIO DE SESIÓN' => '#007bff',  // Azul
+    ];
+    return $colores[strtoupper($accion)] ?? '#6c757d'; // Gris por defecto
+}
+```
+
+---
+
+## Filtrar registros
+
+La página carga con un rango predeterminado de los **últimos 7 días**. Puedes ajustar los filtros y hacer clic en **Buscar**.
+
+<CardGroup cols={2}>
+  <Card title="Rango de fechas" icon="calendar">
+    **Fecha Desde** (`fecha_desde`) y **Fecha Hasta** (`fecha_hasta`). Ambos son requeridos. El valor por defecto es:
+
+    ```php
+    $fecha_desde = date('Y-m-d', strtotime('-7 days'));
+    $fecha_hasta = date('Y-m-d');
+    ```
+  </Card>
+  <Card title="Filtro por usuario" icon="user">
+    Selector `cedula_usuario`. Muestra todos los usuarios registrados. Selecciona **Todos los Usuarios** para ver actividad sin restricción de autor.
+  </Card>
+</CardGroup>
+
+Los filtros se traducen en condiciones `WHERE` sobre la consulta base:
+
+```php
+$sql_base = "SELECT b.*, u.{$col_nombre}, u.{$col_apellido}
+             FROM auditoria b
+             LEFT JOIN usuarios u ON b.usuario_cedula = u.cedula
+             WHERE 1=1";
+
+// Rango de fechas
+if (!empty($fecha_desde)) {
+    $sql_base .= " AND DATE(b.fecha_accion) >= ?";
+}
+if (!empty($fecha_hasta)) {
+    $sql_base .= " AND DATE(b.fecha_accion) <= ?";
+}
+
+// Usuario específico
+if ($cedula_usuario !== 'todos' && !empty($cedula_usuario)) {
+    $sql_base .= " AND b.usuario_cedula = ?";
+}
+```
+
+---
+
+## Paginación
+
+Los resultados se muestran de **15 registros por página** (`$registros_por_pagina = 15`), ordenados por `fecha_accion DESC` (más recientes primero).
+
+```php
+$total_paginas = (int)ceil($total_registros / $registros_por_pagina);
+$offset = ($pagina_actual - 1) * $registros_por_pagina;
+```
+
+Los controles de paginación aparecen tanto encima como debajo de la tabla cuando hay más de una página. Los filtros activos se preservan en los enlaces de paginación mediante la variable `$query_string`.
+
+---
+
+## Cómo interpretar un registro de auditoría
+
+Cada fila de la tabla muestra:
+
+| Columna en pantalla | Origen |
+|---|---|
+| **ID** | `auditoria.id` |
+| **Usuario** | `nombres` + `apellidos` de la tabla `usuarios` (JOIN por `cedula`). Muestra "Sistema" si el usuario fue eliminado |
+| **Acción** | Badge coloreado con el valor de `auditoria.accion` |
+| **Tabla** | `auditoria.tabla_afectada` |
+| **Registro** | Contenido abreviado de `datos_nuevos` o `datos_anteriores` (con tooltip del valor completo) |
+| **Detalle** | Valor completo de `datos_nuevos` |
+| **Fecha/Hora** | `fecha_accion` formateada como `d/m/Y H:i` con `date()` |
+
+### Ejemplo de registro de cambio de contraseña
+
+Cuando un usuario cambia su contraseña desde `perfil.php`, se inserta el siguiente registro:
+
+```php
+$auditoria = "INSERT INTO auditoria
+    (tabla_afectada, accion, usuario_cedula, datos_nuevos, ip_address)
+    VALUES ('usuarios', 'UPDATE', ?, ?, ?)";
+
+$datos = json_encode(['password' => 'cambiado']);
+```
+
+El valor `datos_nuevos` es `{"password":"cambiado"}` — el hash nuevo nunca se almacena en la auditoría.
+
+### Ejemplo de registro de cambio de correo
+
+```php
+$datos_ant = json_encode(['email' => $email_actual]);
+$datos_nue = json_encode(['email' => $nuevo_email]);
+// Ambos quedan en datos_anteriores y datos_nuevos respectivamente
+```
+
+---
+
+## Preguntas frecuentes
+
+<AccordionGroup>
+  <Accordion title="¿Se pueden borrar registros de auditoría?">
+    No existe ningún formulario en la interfaz actual para eliminar registros de la tabla `auditoria`. Los datos son inmutables desde la aplicación web, lo que preserva la integridad del historial.
+  </Accordion>
+
+  <Accordion title="¿Qué ocurre si se elimina un usuario?">
+    La restricción `ON DELETE SET NULL` en la clave foránea `auditoria_ibfk_1` deja el campo `usuario_cedula` en `NULL` cuando el usuario es borrado de la tabla `usuarios`. La columna **Usuario** en pantalla mostrará 'Sistema' para esos registros.
+  </Accordion>
+
+  <Accordion title="¿El campo ip_address registra IPv6?">
+    Sí. El tipo `varchar(45)` es suficiente para almacenar la representación textual más larga de una dirección IPv6. El valor se obtiene de `$_SERVER['REMOTE_ADDR']`.
+  </Accordion>
+
+  <Accordion title="¿Por qué algunos registros muestran 'Sistema' en la columna Usuario?">
+    Cuando la acción fue registrada por un proceso automatizado, o cuando el usuario asociado ya no existe en la tabla `usuarios` (FK con `ON DELETE SET NULL`), el JOIN no encuentra un nombre y se muestra el literal 'Sistema' como valor por defecto.
+  </Accordion>
+</AccordionGroup>

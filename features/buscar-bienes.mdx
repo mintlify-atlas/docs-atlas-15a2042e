@@ -1,0 +1,198 @@
+---
+title: Búsqueda de Bienes
+description: Cómo buscar, filtrar y exportar bienes nacionales en el inventario de UPTAG.
+---
+
+# Búsqueda de Bienes Nacionales
+
+La página de búsqueda es el centro de consulta del inventario. Ofrece búsqueda por texto libre, filtros adicionales por estatus y categoría, visualización del historial de movimientos por bien y exportación a PDF.
+
+<Info>
+  Ruta de navegación: **Búsqueda de Bienes** (`buscar.php`)
+</Info>
+
+## Vista por defecto: historial completo
+
+Cuando se accede a `buscar.php` **sin** el parámetro `buscar` en la URL, el sistema muestra automáticamente un listado de todos los bienes activos, ordenados del más reciente al más antiguo (hasta 500 registros).
+
+```sql
+SELECT b.*, e.nombre AS estatus_nombre, c.nombre AS categoria_nombre
+FROM bienes b
+LEFT JOIN estatus e ON b.estatus_id = e.id
+LEFT JOIN categorias c ON b.categoria_id = c.id
+WHERE b.activo = 1
+ORDER BY b.id DESC
+LIMIT 500
+```
+
+La tabla del historial muestra las siguientes columnas:
+
+| Columna | Origen |
+|---|---|
+| Código | `bienes.codigo_bien_nacional` |
+| Código Anterior | `bienes.codigo_anterior` |
+| Descripción | `bienes.descripcion` |
+| Marca/Modelo | `bienes.marca` + `bienes.modelo` |
+| Serial | `bienes.serial` |
+| Color | `bienes.color` |
+| Valor | `bienes.valor_adquisicion` |
+| Ubicación | `ubicaciones.nombre` (via `bienes.ubicacion_id`) |
+| Responsable | `ubicaciones.responsable` |
+| Estatus | `estatus.nombre` |
+
+## Búsqueda principal
+
+Al enviar el formulario de búsqueda (parámetro `buscar=1`), el sistema aplica hasta cuatro filtros combinados.
+
+### Filtros disponibles
+
+<AccordionGroup>
+  <Accordion title="Texto libre (termino_busqueda)">
+    Busca con `LIKE '%termino%'` en las siguientes columnas simultáneamente:
+    - `bienes.codigo_bien_nacional`
+    - `bienes.descripcion`
+    - `bienes.marca`
+    - `bienes.modelo`
+    - `bienes.serial`
+    - `bienes.observaciones`
+
+    Parámetro GET: `termino_busqueda`
+  </Accordion>
+  <Accordion title="Código exacto (codigo_bien)">
+    Búsqueda exacta (`=`) sobre `bienes.codigo_bien_nacional`. Útil cuando se conoce el código completo del bien.
+
+    Parámetro GET: `codigo_bien`
+  </Accordion>
+  <Accordion title="Filtro por estatus">
+    Filtra por `bienes.estatus_id`. El selector muestra todos los estatus con `activo = 1` de la tabla `estatus`.
+
+    Parámetro GET: `estatus`
+  </Accordion>
+  <Accordion title="Filtro por categoría">
+    Filtra por `bienes.categoria_id`. El selector muestra todas las categorías con `activo = 1` de la tabla `categorias`.
+
+    Parámetro GET: `categoria`
+  </Accordion>
+</AccordionGroup>
+
+Los filtros son combinables. La consulta base siempre incluye `WHERE b.activo = 1` y devuelve máximo **200 resultados** ordenados por `b.id DESC`.
+
+### Resolución de ubicación actual
+
+La búsqueda determina la ubicación actual de cada bien a partir del **último movimiento** que tenga `ubicacion_destino_id` definido:
+
+```sql
+LEFT JOIN (
+    SELECT bien_id, ubicacion_destino_id
+    FROM movimientos
+    WHERE (bien_id, id) IN (
+        SELECT bien_id, MAX(id)
+        FROM movimientos
+        WHERE ubicacion_destino_id IS NOT NULL
+        GROUP BY bien_id
+    )
+) ult_mov ON b.id = ult_mov.bien_id
+LEFT JOIN ubicaciones u ON ult_mov.ubicacion_destino_id = u.id
+LEFT JOIN dependencias dep ON u.dependencia_id = dep.id
+```
+
+<Note>
+  Existe también la página **Buscar por Ubicación** (`buscar_por_ubicacion.php`), accesible desde el enlace rápido "Buscar por Ubicación" en la barra de búsqueda principal. Permite filtrar por dependencia o ubicación específica con soporte para búsqueda recursiva en sub-ubicaciones.
+</Note>
+
+## Columnas de resultados de búsqueda
+
+Cada resultado muestra una tarjeta expandida con los siguientes datos del bien:
+
+| Campo | Descripción |
+|---|---|
+| `codigo_bien_nacional` | Código identificador principal |
+| `codigo_anterior` | Código en sistema anterior |
+| `descripcion` | Descripción completa |
+| `marca` | Marca del bien |
+| `modelo` | Modelo del bien |
+| `serial` | Número de serie |
+| `color` | Color |
+| `dimensiones` | Medidas físicas |
+| `valor_adquisicion` | Precio de compra (Bs.) |
+| `valor_actual` | Valor depreciado (Bs.) |
+| `vida_util_anos` | Años de vida útil |
+| `fecha_incorporacion` | Fecha de ingreso al inventario |
+| `ubicacion_nombre` | Ubicación actual (del último movimiento) |
+| `dependencia_nombre` | Dependencia de la ubicación actual |
+| `categoria_nombre` | Categoría del bien |
+| `estatus_nombre` | Estado actual del bien |
+
+## Historial de movimientos por bien
+
+Cuando se realiza una búsqueda (no en la vista de historial), cada tarjeta de resultado incluye el historial completo de movimientos del bien:
+
+```sql
+SELECT m.*,
+    uo.nombre AS ubicacion_origen_nombre,
+    ud.nombre AS ubicacion_destino_nombre,
+    ro.nombres AS responsable_origen_nombre,
+    ro.apellidos AS responsable_origen_apellido,
+    rd.nombres AS responsable_destino_nombre,
+    rd.apellidos AS responsable_destino_apellido,
+    u.nombres AS usuario_nombres,
+    u.apellidos AS usuario_apellidos
+FROM movimientos m
+LEFT JOIN ubicaciones uo ON m.ubicacion_origen_id = uo.id
+LEFT JOIN ubicaciones ud ON m.ubicacion_destino_id = ud.id
+LEFT JOIN responsables ro ON m.responsable_origen_id = ro.id
+LEFT JOIN responsables rd ON m.responsable_destino_id = rd.id
+LEFT JOIN usuarios u ON m.usuario_registro = u.cedula
+WHERE m.bien_id = ?
+ORDER BY m.fecha_movimiento DESC, m.id DESC
+```
+
+Las columnas visibles en la tabla de movimientos son:
+
+| Columna | Descripción |
+|---|---|
+| Fecha | `movimientos.fecha_movimiento` |
+| Tipo | `movimientos.tipo_movimiento` (con badge de color) |
+| Origen | Nombre de `ubicacion_origen_id` |
+| Destino | Nombre de `ubicacion_destino_id` |
+| Responsable | Nombres y apellidos del `responsable_destino_id` |
+| Razón | `movimientos.razon` |
+| Usuario | Nombres del `usuario_registro` |
+
+Los tipos de movimiento tienen los siguientes colores en la interfaz:
+
+| Tipo | Color |
+|---|---|
+| Incorporacion | Verde (`#4caf50`) |
+| Traslado | Azul (`#2196f3`) |
+| Desincorporacion | Rojo (`#f44336`) |
+| Asignacion | Púrpura (`#9c27b0`) |
+| Reparacion | Naranja (`#ff9800`) |
+| Devolucion | Gris azulado (`#607d8b`) |
+
+## Exportar a PDF
+
+Cuando una búsqueda produce resultados, aparece un bloque de exportación sobre los resultados.
+
+<Steps>
+  <Step title="Realizar una búsqueda">
+    Aplique los filtros deseados y haga clic en **Buscar** o **Aplicar**.
+  </Step>
+  <Step title="Exportar resultados">
+    Haga clic en **Descargar PDF**. El formulario envía por `POST` a `generar_reporte_inventario.php` los parámetros de búsqueda actuales (`termino`, `codigo_bien`, `estatus`, `categoria`).
+  </Step>
+  <Step title="PDF completo (historial)">
+    En la vista de historial (sin búsqueda activa), el botón **Descargar PDF Completo** exporta todos los bienes del inventario.
+  </Step>
+</Steps>
+
+<Tip>
+  Los parámetros de la última búsqueda se almacenan en `$_SESSION['busqueda_params']`, lo que permite que `generar_reporte_inventario.php` reproduzca exactamente los mismos filtros al generar el PDF.
+</Tip>
+
+## Acciones directas desde los resultados
+
+Cada bien en los resultados (tanto en la búsqueda como en el historial) tiene acceso directo a:
+
+- **Editar** → redirige a `editar_bien.php?codigo={codigo_bien_nacional}`
+- **Movimiento** → redirige a `registrar_movimiento.php?bien_id={id}`

@@ -1,0 +1,120 @@
+---
+title: Reporte de Inventario General
+description: Genera y descarga en PDF el inventario de bienes nacionales registrados en UPTAG, con filtros por fecha de incorporación, estatus, ubicación y categoría.
+---
+
+El reporte de inventario general permite consultar todos los bienes activos registrados en el sistema dentro de un rango de fechas de incorporación, aplicar filtros adicionales y descargar el resultado en formato PDF para uso institucional o auditoría.
+
+## Acceso
+
+En el menú lateral, expanda **Reportes** y seleccione **Inventario General**. Esto abre `generar_reporte_inventario.php`.
+
+<Note>
+Debe tener una sesión activa para acceder a esta página. Usuarios sin sesión son redirigidos a `Loggin.php` automáticamente.
+</Note>
+
+## Contenido del reporte
+
+Cada fila del reporte corresponde a un bien de la tabla `bienes`. Los campos incluidos son:
+
+| Campo | Columna en BD | Descripción |
+|---|---|---|
+| Nº | — | Numeración correlativa |
+| Código BN | `codigo_bien_nacional` | Código oficial del bien nacional |
+| Descripción | `descripcion` | Descripción del bien |
+| Marca | `marca` | Marca del bien |
+| Modelo | `modelo` | Modelo del bien |
+| Serial | `serial` | Número de serial |
+| Ubicación | `ubicacion_id` → `ubicaciones.nombre` | Nombre de la ubicación asignada |
+| Estatus | `estatus_id` → `estatus.nombre` | Estatus actual del bien |
+| Valor (Bs.) | `valor_original` | Valor original en bolívares |
+
+El pie de tabla muestra el **total acumulado** del valor de todos los bienes encontrados.
+
+El encabezado del PDF impreso incluye:
+- Rango de fechas aplicado
+- Estatus filtrado
+- Nombre del usuario que generó el reporte
+- Fecha y hora de generación (zona horaria: America/Caracas)
+- Total de bienes
+
+## Filtros disponibles
+
+<CardGroup cols={2}>
+  <Card title="Fecha de incorporación" icon="calendar">
+    Rango obligatorio (`fecha_inicio` y `fecha_fin`). Filtra por el campo `fecha_incorporacion` de la tabla `bienes`. La fecha de inicio no puede ser posterior a la fecha fin.
+  </Card>
+  <Card title="Estatus" icon="circle-check">
+    Desplegable cargado desde la tabla `estatus_bienes` (si existe) o `estatus WHERE activo = 1`. Filtra por `bienes.estatus_id`. Opción por defecto: **Todos los estatus**.
+  </Card>
+  <Card title="Ubicación" icon="map-pin">
+    Desplegable cargado desde `ubicaciones WHERE activo = 1`. Filtra por `bienes.ubicacion_id`. Opción por defecto: **Todas las ubicaciones**.
+  </Card>
+  <Card title="Categoría" icon="tag">
+    Desplegable cargado desde `categorias WHERE activo = 1`. Filtra por `bienes.categoria_id`. Opción por defecto: **Todas las categorías**.
+  </Card>
+</CardGroup>
+
+<Tip>
+Todos los filtros adicionales son opcionales. El único campo obligatorio es el rango de fechas.
+</Tip>
+
+### Búsqueda personalizada
+
+Cuando el reporte se invoca desde `buscar.php` (parámetro `busqueda_personalizada`), acepta filtros adicionales:
+
+- **Término libre** — busca en `codigo_bien_nacional`, `descripcion`, `marca`, `modelo`, `serial`, `observaciones` con `LIKE`.
+- **Código de bien** — coincidencia exacta sobre `codigo_bien_nacional`.
+- **Dependencia** — filtra por `bienes.dependencia_id`, con opción de incluir sub-dependencias (`buscar_todo_dependencia`).
+- **Ubicación con jerarquía** — opción `buscar_todo_lugar` expande la búsqueda a ubicaciones hijo mediante `ubicacion_padre_id`.
+
+En modo de búsqueda personalizada el sistema devuelve un máximo de **200 resultados**.
+
+## Cómo generar el reporte
+
+<Steps>
+  <Step title="Establecer el rango de fechas">
+    Complete los campos **Fecha Inicio** y **Fecha Fin**. Ambos son obligatorios. El sistema valida que la fecha de inicio no supere la fecha fin antes de enviar el formulario.
+  </Step>
+  <Step title="Aplicar filtros opcionales">
+    Seleccione los valores deseados en los desplegables **Estatus**, **Ubicación** y **Categoría**. Deje la opción "Todos" si no desea restringir ese criterio.
+  </Step>
+  <Step title="Ejecutar la búsqueda">
+    Haga clic en **Buscar**. El sistema muestra los resultados en pantalla junto con las estadísticas: total de bienes y valor total en Bs.
+  </Step>
+  <Step title="Descargar el PDF">
+    Una vez visibles los resultados, haga clic en **Descargar PDF**. El navegador abrirá una nueva pestaña y descargará automáticamente el archivo con el nombre `reporte_inventario_YYYY-MM-DD_HH-mm-ss.pdf`.
+  </Step>
+</Steps>
+
+## Generación del PDF
+
+El archivo PDF es generado por `reporte_inventario.php` usando la biblioteca **DOMPDF** (`librerias/dompdf/`). El flujo es:
+
+1. Los datos del resultado se pasan mediante un campo oculto `resultados_json` (JSON codificado).
+2. `reporte_inventario.php` renderiza el HTML con los datos y lo procesa con `Dompdf::loadHtml()`.
+3. El PDF se configura en papel **A4 portrait** con márgenes de 10 mm.
+4. Se envía directamente al navegador como descarga (`Content-Disposition: attachment`).
+
+```php
+$dompdf->setPaper('A4', 'portrait');
+$dompdf->render();
+$dompdf->stream($nombre_archivo, ['attachment' => true]);
+```
+
+<Info>
+La opción `isRemoteEnabled` está habilitada en DOMPDF para permitir la carga de imágenes remotas en el encabezado del PDF.
+</Info>
+
+## Uso institucional
+
+Este reporte es el instrumento principal de la Oficina de Bienes Nacionales UPTAG para:
+
+- Verificar el inventario físico en períodos de auditoría.
+- Presentar ante organismos de control el inventario activo por categoría o ubicación.
+- Identificar bienes incorporados en un período fiscal específico.
+- Calcular el valor total del patrimonio institucional en Bs.
+
+<Warning>
+El reporte toma los datos en tiempo real de la base de datos en el momento en que se presiona **Buscar**. El PDF descargado refleja el estado del inventario en ese instante y no se actualiza posteriormente.
+</Warning>

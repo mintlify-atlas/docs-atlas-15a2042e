@@ -1,0 +1,193 @@
+---
+title: Database setup
+description: Create and populate the bienes_nacionales_uptag database from the bundled SQL file.
+---
+
+## Database name
+
+All connection settings in `conexion.php` point to a single database:
+
+```
+bienes_nacionales_uptag
+```
+
+Create this database before importing the schema.
+
+---
+
+## Create the database
+
+<Tabs>
+  <Tab title="phpMyAdmin">
+    1. Open `http://localhost/phpmyadmin`.
+    2. Click **New** in the left sidebar.
+    3. Enter `bienes_nacionales_uptag` as the database name.
+    4. Set the collation to `utf8mb4_general_ci`.
+    5. Click **Create**.
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    mysql -u root -p -e "CREATE DATABASE bienes_nacionales_uptag CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Import the schema
+
+The file `bd_bienes_nacionales.sql` in the project root contains the complete schema and default seed data.
+
+<Tabs>
+  <Tab title="phpMyAdmin">
+    <Steps>
+      <Step title="Select the database">
+        Click `bienes_nacionales_uptag` in the phpMyAdmin sidebar.
+      </Step>
+      <Step title="Import the SQL file">
+        Go to the **Import** tab, click **Choose File**, select `bd_bienes_nacionales.sql`, and click **Go**.
+      </Step>
+      <Step title="Verify">
+        The left sidebar should now list all tables under `bienes_nacionales_uptag`.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    mysql -u root bienes_nacionales_uptag < bd_bienes_nacionales.sql
+    ```
+
+    If the database does not exist yet, create it first:
+
+    ```bash
+    mysql -u root -p -e "CREATE DATABASE bienes_nacionales_uptag CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+    mysql -u root -p bienes_nacionales_uptag < bd_bienes_nacionales.sql
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Table overview
+
+The schema creates thirteen tables. The diagram below shows the dependency order used in `bd_bienes_nacionales.sql`.
+
+<CardGroup cols={2}>
+  <Card title="usuarios" icon="users">
+    System users. Primary key is `cedula` (Venezuelan national ID). Stores `password_hash` (bcrypt), `rol` (`Administrador` or `Usuario`), and `activo` flag.
+  </Card>
+  <Card title="categorias" icon="tag">
+    Asset categories. Supports a self-referencing `categoria_padre_id` for hierarchical classification (e.g., SIGECOF categories).
+  </Card>
+  <Card title="estatus" icon="circle-check">
+    Asset statuses. The `permite_movimiento` flag controls whether a bien in that status can be transferred.
+  </Card>
+  <Card title="dependencias" icon="building">
+    Organizational units (Rectoría, Vicerrectorado, OGA, etc.). Typed as `Administrativa`, `Academica`, `PNF`, `Laboratorio`, or `Otra`.
+  </Card>
+  <Card title="ubicaciones" icon="map-pin">
+    Physical locations within a dependencia (e.g., Oficina del Rector). Each ubicación belongs to exactly one dependencia.
+  </Card>
+  <Card title="bienes" icon="box">
+    Core asset table. References `categorias`, `ubicaciones`, `estatus`, `adquisiciones`, and optionally `donaciones`.
+  </Card>
+  <Card title="movimientos" icon="arrow-right-arrow-left">
+    Asset movement history. Records origin/destination locations, responsible parties, and the registering user's cédula.
+  </Card>
+  <Card title="auditoria" icon="shield">
+    System audit log. Every login attempt, password change, and data modification writes a row with `tabla_afectada`, `accion`, `usuario_cedula`, and `ip_address`.
+  </Card>
+</CardGroup>
+
+<Note>
+  Additional tables in the schema: `proveedores`, `donaciones`, `adquisiciones`, `responsables`, and `control_perceptivo`.
+</Note>
+
+---
+
+## Default seed data
+
+The SQL file inserts the following records automatically:
+
+**Default admin user**
+
+```sql
+-- cedula: 12345678 | password: Admin123!
+INSERT INTO `usuarios` VALUES
+('12345678', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
+ 'Administrador', 'Sistema', 'admin@sistema.com', 'Administrador', 1, NULL, NOW(), NOW());
+```
+
+**Default statuses**
+
+```sql
+INSERT INTO `estatus` VALUES
+(1, 'Activo',                        'Bien incorporado y operativo',          1, 1, NOW()),
+(2, 'En Uso',                        'Bien asignado y en uso normal',         1, 1, NOW()),
+(3, 'En Reparacion',                 'Bien temporalmente fuera de servicio',  0, 1, NOW()),
+(4, 'Desincorporado',                'Bien dado de baja del inventario',      0, 1, NOW()),
+(5, 'Extraviado',                    'Bien no localizado',                    0, 1, NOW()),
+(6, 'En Proceso de Desincorporacion','Bien en tramite de baja',               0, 1, NOW());
+```
+
+**Sample category**
+
+```sql
+INSERT INTO `categorias` VALUES
+(1, 'Mobiliario y Equipo de Oficina', 'MOB-001',
+ 'Mobiliario general para oficinas', NULL, 1, NOW(), NOW());
+```
+
+**Seed dependencias and ubicaciones**
+
+```sql
+INSERT INTO `dependencias` VALUES
+(1, 'RECTORÍA - UPTAG',                   '01', 'Administrativa', ...),
+(2, 'VICERECTORADO ACADÉMICO',            '02', 'Academica',      ...),
+(3, 'OFICINA DE GESTIÓN ADMINISTRATIVA',  '03', 'Administrativa', ...);
+
+INSERT INTO `ubicaciones` VALUES
+(1, 1, 'OFICINA DEL RECTOR',              '0101', ...),
+(2, 2, 'VICERECTORADO ACADEMICO JEFATURA','0201', ...),
+(3, 3, 'OFICINA DE GESTION ADM.',         '0301', ...);
+```
+
+<Warning>
+  Change the default admin password immediately after the first login. The hash in the seed data is the bcrypt hash for `Admin123!` using PHP's `PASSWORD_DEFAULT` algorithm.
+</Warning>
+
+---
+
+## Backup and restore
+
+**Create a backup**
+
+```bash
+mysqldump -u root -p bienes_nacionales_uptag > respaldo_$(date +%Y%m%d).sql
+```
+
+**Restore from a backup**
+
+```bash
+mysql -u root -p bienes_nacionales_uptag < respaldo_archivo.sql
+```
+
+<Tip>
+  Schedule daily backups with cron in production environments:
+
+  ```bash
+  0 2 * * * mysqldump -u root -pYourPassword bienes_nacionales_uptag > /backups/bienes_$(date +\%Y\%m\%d).sql
+  ```
+</Tip>
+
+---
+
+## Exporting from within the system
+
+An administrator can export the database directly from the web interface at **Configuración** (`configuracion.php`). This option is only visible to users with the `Administrador` role, as enforced by `header.php`:
+
+```php
+$es_administrador = ($_SESSION['usuario']['rol'] === 'Administrador');
+```
+
+The export generates and downloads an SQL dump without requiring command-line access.

@@ -1,0 +1,137 @@
+---
+title: Reporte de Movimientos
+description: Consulta y exporta en PDF el historial de movimientos de bienes nacionales registrados en UPTAG, filtrados por fecha, tipo de movimiento y código de bien.
+---
+
+El reporte de movimientos consolida el historial de todos los cambios de ubicación, estatus, mantenimientos y demás movimientos registrados sobre los bienes del inventario institucional.
+
+## Acceso
+
+Navegue en el menú lateral a **Reportes** → **Reporte de Movimientos** (`generar_reporte_movimientos.php`).
+
+<Warning>
+El enlace a este reporte está actualmente **comentado** en `home.php` y no aparece en el menú lateral:
+
+```html
+<!-- <li><a href="generar_reporte_movimientos.php"><i class="zmdi zmdi-swap"></i> Reporte de Movimientos</a></li> -->
+```
+
+Para acceder, ingrese la URL directamente en el navegador: `generar_reporte_movimientos.php`. Un administrador debe descomentar la línea en `home.php` para restaurar el acceso desde el menú.
+</Warning>
+
+## Contenido del reporte
+
+El reporte cruza la tabla `movimientos` con `bienes` y `ubicaciones`. Cada fila corresponde a un evento de movimiento:
+
+| Campo | Origen | Descripción |
+|---|---|---|
+| Nº | — | Numeración correlativa |
+| Código BN | `bienes.codigo_bien_nacional` | Código del bien involucrado |
+| Fecha Mov. | `movimientos.fecha_movimiento` | Fecha del movimiento (formato dd/mm/YYYY) |
+| Tipo Movimiento | `movimientos.tipo_movimiento` | Tipo (ver tabla de tipos abajo) |
+| Origen | `ubicacion_origen_id` → `ubicaciones.nombre` | Ubicación de origen |
+| Destino | `ubicacion_destino_id` → `ubicaciones.nombre` | Ubicación de destino |
+| Estatus Orig. | `estatus_origen_id` → `estatus_bienes.nombre` | Estatus antes del movimiento |
+| Estatus Dest. | `estatus_destino_id` → `estatus_bienes.nombre` | Estatus después del movimiento |
+| Responsable | `movimientos.responsable` | Persona responsable del movimiento |
+| Motivo | `movimientos.motivo` | Motivo declarado |
+| Observaciones | `movimientos.observaciones` | Observaciones adicionales |
+
+### Tipos de movimiento
+
+<CardGroup cols={2}>
+  <Card title="traslado" icon="truck">
+    Cambio físico de ubicación del bien de un espacio a otro dentro o fuera de la institución.
+  </Card>
+  <Card title="cambio_estatus" icon="arrow-left-right">
+    Modificación del estatus del bien sin cambio de ubicación física.
+  </Card>
+  <Card title="mantenimiento" icon="wrench">
+    Bien enviado o retornado de proceso de mantenimiento preventivo o correctivo.
+  </Card>
+  <Card title="reparacion" icon="screwdriver-wrench">
+    Bien enviado a reparación por falla o daño.
+  </Card>
+  <Card title="desincorporacion" icon="trash">
+    Bien dado de baja del inventario activo.
+  </Card>
+  <Card title="prestamo" icon="hand">
+    Bien prestado temporalmente a otra unidad o persona.
+  </Card>
+  <Card title="devolucion" icon="rotate-left">
+    Devolución de un bien prestado previamente.
+  </Card>
+  <Card title="otro" icon="circle-ellipsis">
+    Cualquier movimiento que no encaje en las categorías anteriores.
+  </Card>
+</CardGroup>
+
+## Filtros disponibles
+
+El formulario en `generar_reporte_movimientos.php` expone los siguientes filtros:
+
+| Filtro | Campo del formulario | Comportamiento |
+|---|---|---|
+| Fecha inicio | `fecha_inicio` | Obligatorio. Límite inferior de `movimientos.fecha_movimiento`. |
+| Fecha fin | `fecha_fin` | Obligatorio. Límite superior de `movimientos.fecha_movimiento`. |
+| Tipo de movimiento | `filtro_tipo` | Opcional. Filtra por `movimientos.tipo_movimiento`. Valor por defecto: `todos`. |
+| Código de bien | `filtro_bien` | Opcional. Búsqueda parcial (`LIKE`) sobre `bienes.codigo_bien_nacional`. |
+
+<Note>
+Si la tabla `movimientos` no existe aún en la base de datos, el sistema muestra el mensaje: *"La tabla de movimientos no existe aún. Debe registrar movimientos primero."*
+</Note>
+
+## Cómo generar el reporte
+
+<Steps>
+  <Step title="Establecer el rango de fechas">
+    Ingrese **Fecha Inicio** y **Fecha Fin**. Ambas son obligatorias. La validación ocurre tanto en el cliente (JavaScript) como en el servidor.
+  </Step>
+  <Step title="Seleccionar tipo de movimiento (opcional)">
+    Use el desplegable **Tipo de Movimiento** para restringir los resultados a una categoría específica, o déjelo en **Todos los tipos**.
+  </Step>
+  <Step title="Filtrar por código de bien (opcional)">
+    Ingrese parte o la totalidad del código de bien en el campo **Código de Bien** para ver únicamente los movimientos de ese activo.
+  </Step>
+  <Step title="Ejecutar la búsqueda">
+    Haga clic en **Buscar**. Los resultados se muestran en una tabla con columnas de origen, destino, responsable y motivo.
+  </Step>
+  <Step title="Descargar el PDF">
+    Con resultados visibles, haga clic en **Descargar PDF**. El archivo se descarga con el nombre `reporte_movimientos_YYYY-MM-DD_HH-mm-ss.pdf`.
+  </Step>
+</Steps>
+
+## Generación del PDF
+
+El PDF es producido por `reporte_movimientos.php` mediante **DOMPDF** (`librerias/dompdf/`). Los datos se transmiten como `resultados_json` en el cuerpo del POST junto con `fecha_inicio`, `fecha_fin` y `filtro_tipo`.
+
+El documento PDF tiene el siguiente formato:
+
+- **Papel:** A4 horizontal (landscape), márgenes de 15 mm.
+- **Encabezado:** nombre del reporte, rango de fechas, tipo de movimiento filtrado, fecha/hora de generación, nombre del usuario, total de movimientos.
+- **Tabla:** columnas detalladas incluyendo estatus de origen y destino, y campo de observaciones.
+- **Pie de página:** identificación del sistema y año de generación.
+
+```php
+$dompdf->setPaper('A4', 'landscape');
+$dompdf->render();
+$dompdf->stream($nombre_archivo, ['attachment' => true]);
+```
+
+## Certificado individual de movimiento
+
+Además del reporte consolidado, el sistema genera un **certificado individual** por cada movimiento registrado mediante `pdf_movimiento.php`. Este documento se produce automáticamente al registrar un movimiento y contiene:
+
+- Código del bien y tipo de movimiento.
+- Fecha del movimiento y nombre del responsable.
+- Ubicación y estatus de origen.
+- Motivo y observaciones.
+- Nombre y cédula del usuario que registró el movimiento.
+- Número de control interno.
+- Espacios de firma para el responsable del movimiento y el jefe de la Oficina de Bienes Nacionales.
+
+El certificado se genera en **A4 portrait** con marca de agua "UPTAG" y se almacena temporalmente en `$_SESSION['ultimo_movimiento']`.
+
+<Tip>
+El certificado individual es el comprobante formal de cada operación. Imprímalo y archívelo junto a la documentación física del bien afectado.
+</Tip>

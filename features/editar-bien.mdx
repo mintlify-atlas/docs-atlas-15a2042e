@@ -1,0 +1,118 @@
+---
+title: Editar Bien Nacional
+description: Cómo buscar y modificar los datos de un bien ya registrado en el inventario de UPTAG.
+---
+
+# Editar Bien Nacional
+
+Esta función permite localizar un bien por su código y actualizar cualquiera de sus campos almacenados en la tabla `bienes`.
+
+<Info>
+  Ruta de navegación: **Gestión de Bienes → Editar Bien** (`editar_bien.php`)
+</Info>
+
+## Flujo general
+
+La página opera en dos fases: primero se busca el bien por su `codigo_bien_nacional`; una vez encontrado, se muestra el formulario de edición pre-rellenado con los datos actuales.
+
+<Steps>
+  <Step title="Navegar a Editar Bien">
+    En el menú lateral seleccione **Gestión de Bienes → Editar Bien**. Se mostrará un campo de búsqueda.
+  </Step>
+  <Step title="Buscar el bien">
+    Ingrese el `codigo_bien_nacional` exacto del bien (p. ej., `BN-2026-0042`) y haga clic en **Buscar**. El sistema ejecuta:
+    ```sql
+    SELECT * FROM bienes WHERE codigo_bien_nacional = ?
+    ```
+    Si el bien no existe, se muestra el mensaje: _"No se encontró ningún bien con el código: …"_
+  </Step>
+  <Step title="Editar los campos">
+    El formulario se carga con todos los campos del bien. Modifique los valores que necesite cambiar.
+  </Step>
+  <Step title="Guardar los cambios">
+    Haga clic en **Guardar Cambios**. El sistema ejecuta la actualización dentro de una transacción. Al completar, recarga el bien actualizado desde la BD y confirma con el mensaje: _"Bien '…' actualizado correctamente."_
+  </Step>
+</Steps>
+
+## Campos editables
+
+Todos los campos del bien pueden modificarse. Los marcados con `*` son obligatorios también en la edición:
+
+<CardGroup cols={2}>
+  <Card title="Campos de identificación" icon="tag">
+    - `codigo_bien_nacional` *
+    - `codigo_anterior`
+    - `categoria_id` *
+    - `estatus_id`
+  </Card>
+  <Card title="Características físicas" icon="box">
+    - `descripcion` *
+    - `marca`
+    - `modelo`
+    - `serial`
+    - `color`
+    - `dimensiones`
+  </Card>
+  <Card title="Valoración" icon="dollar-sign">
+    - `valor_adquisicion` (Bs.)
+    - `valor_actual` (Bs.)
+    - `vida_util_anos`
+  </Card>
+  <Card title="Ubicación y fechas" icon="map-pin">
+    - `ubicacion_id`
+    - `fecha_incorporacion` *
+    - `observaciones`
+  </Card>
+</CardGroup>
+
+## Consulta de actualización
+
+El servidor construye el `UPDATE` de forma dinámica, verificando primero qué columnas existen en la tabla mediante `SHOW COLUMNS FROM bienes`. La columna `ubicacion_id` solo se incluye en el `SET` si está presente en el esquema actual.
+
+```sql
+UPDATE bienes SET
+  codigo_bien_nacional = ?,
+  codigo_anterior      = ?,
+  categoria_id         = ?,
+  descripcion          = ?,
+  marca                = ?,
+  modelo               = ?,
+  serial               = ?,
+  color                = ?,
+  dimensiones          = ?,
+  valor_adquisicion    = ?,
+  valor_actual         = ?,
+  vida_util_anos       = ?,
+  estatus_id           = ?,
+  observaciones        = ?,
+  fecha_incorporacion  = ?,
+  ubicacion_id         = ?   -- solo si la columna existe
+WHERE id = ?
+```
+
+<Note>
+  La edición **no** crea un movimiento automático. Si necesita dejar constancia del cambio de ubicación como un traslado formal, registre adicionalmente un movimiento en **Registrar Movimiento**.
+</Note>
+
+## Validaciones
+
+El sistema valida lo siguiente antes de ejecutar el `UPDATE`:
+
+| Condición | Mensaje de error |
+|---|---|
+| `codigo_bien_nacional` vacío | "El Código de Bien Nacional es obligatorio." |
+| `descripcion` vacía | "La descripción del bien es obligatoria." |
+| `fecha_incorporacion` vacía | "La fecha de incorporación es obligatoria." |
+| `categoria_id` ≤ 0 | "Debe seleccionar una categoría." |
+
+Si ocurre algún error durante el `UPDATE`, la transacción hace `ROLLBACK` y el formulario se mantiene visible con los datos ingresados para corrección.
+
+## Consideraciones importantes
+
+<Warning>
+  Cambiar el `estatus_id` directamente desde este formulario no registra un movimiento en la tabla `movimientos`. Para cambios de estatus con trazabilidad, use **Registrar Movimiento** con el tipo `cambio_estatus`.
+</Warning>
+
+<Tip>
+  Puede acceder directamente al formulario de edición desde los resultados de búsqueda en **Búsqueda de Bienes**, haciendo clic en el botón **Editar** de cualquier bien de la lista.
+</Tip>

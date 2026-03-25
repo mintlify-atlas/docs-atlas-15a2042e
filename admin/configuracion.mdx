@@ -1,0 +1,213 @@
+---
+title: Configuración del sistema
+description: Panel central de administración — exportación de base de datos, accesos directos a módulos administrativos y gestión del perfil de usuario.
+---
+
+## Vista según el rol
+
+La página `configuracion.php` determina el nivel de acceso mediante la variable `$es_superusuario`:
+
+```php
+$es_superusuario = (
+    strtolower(trim($_SESSION['usuario']['rol'] ?? '')) === 'administrador'
+);
+$clase_contenedor = $es_superusuario ? '' : 'normal-user';
+```
+
+Cuando `$es_superusuario` es `false`, el contenedor recibe la clase CSS `normal-user` y todas las secciones marcadas con `.superuser-only` quedan ocultas. Los usuarios con rol `Usuario` solo ven las opciones que les corresponden.
+
+<Note>
+A diferencia de `gestion_usuarios.php` y `auditoria_sistema.php`, `configuracion.php` no redirige al usuario no-administrador — simplemente oculta las secciones restringidas mediante CSS.
+</Note>
+
+---
+
+## Secciones del panel (solo Administrador)
+
+<CardGroup cols={2}>
+  <Card title="Gestión de usuarios" icon="users">
+    Acceso directo a `gestion_usuarios.php`. Permite crear, editar y desactivar cuentas. Ver [Gestión de usuarios](/admin/gestion-usuarios).
+  </Card>
+  <Card title="Auditoría del sistema" icon="clipboard-list">
+    Acceso directo a `auditoria_sistema.php`. Muestra el historial completo de actividad. Ver [Auditoría del sistema](/admin/auditoria).
+  </Card>
+  <Card title="Copias de seguridad" icon="database">
+    Genera y descarga un volcado SQL completo de la base de datos `bienes_nacionales_uptag`.
+  </Card>
+  <Card title="Soporte técnico" icon="headset">
+    Enlace de contacto directo al equipo de soporte del sistema.
+  </Card>
+</CardGroup>
+
+---
+
+## Exportar base de datos
+
+La sección **Copias de Seguridad** contiene un formulario con el botón **Exportar Datos de la BD**. Al hacer clic, se muestra un diálogo de confirmación en el navegador antes de proceder.
+
+### Cómo funciona la exportación
+
+<Steps>
+  <Step title="Envío del formulario">
+    El botón envía `POST` con `name="exportar_datos"`. El servidor detecta `isset($_POST['exportar_datos'])` al inicio de `configuracion.php`, antes de generar cualquier contenido HTML.
+  </Step>
+
+  <Step title="Limpieza del buffer">
+    Se ejecuta `ob_end_clean()` para descartar el HTML parcial que ya estaba en el buffer de salida, dejando paso libre a los headers HTTP de descarga.
+
+    ```php
+    if (ob_get_level()) {
+        ob_end_clean();
+    }
+    ```
+  </Step>
+
+  <Step title="Nombre del archivo">
+    El nombre del archivo se construye con la fecha y hora del momento exacto de la exportación:
+
+    ```php
+    $nombre_db   = 'bienes_nacionales_uptag';
+    $fecha       = date('Y-m-d_H-i-s');
+    $nombre_archivo = "Copia {$nombre_db}_{$fecha}.sql";
+    // Ejemplo: "Copia bienes_nacionales_uptag_2026-03-24_14-30-05.sql"
+    ```
+  </Step>
+
+  <Step title="Generación del volcado SQL">
+    El script itera sobre todas las tablas de la base de datos. Para cada tabla genera primero la sentencia `CREATE TABLE` y luego todas las filas como sentencias `INSERT INTO`:
+
+    ```php
+    // Obtener lista de todas las tablas
+    $resultado = mysqli_query($conn, "SHOW TABLES");
+    while ($fila = mysqli_fetch_row($resultado)) {
+        $tablas[] = $fila[0];
+    }
+
+    foreach ($tablas as $tabla) {
+        // 1. Estructura de la tabla
+        $resultado2 = mysqli_query($conn, "SHOW CREATE TABLE `$tabla`");
+        $fila2 = mysqli_fetch_row($resultado2);
+        $salida_sql .= $fila2[1] . ";\n\n";
+
+        // 2. Datos de la tabla
+        $resultado3 = mysqli_query($conn, "SELECT * FROM `$tabla`");
+        while ($fila3 = mysqli_fetch_row($resultado3)) {
+            $salida_sql .= "INSERT INTO `$tabla` VALUES(...)\n";
+        }
+    }
+
+    $salida_sql .= "COMMIT;\n";
+    ```
+  </Step>
+
+  <Step title="Descarga en el navegador">
+    Se envían los headers HTTP para forzar la descarga directa del archivo `.sql`:
+
+    ```php
+    header('Content-Description: File Transfer');
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename=' . basename($nombre_archivo));
+    header('Expires: 0');
+    header('Cache-Control: must-revalidate');
+    header('Pragma: public');
+    header('Content-Length: ' . strlen($salida_sql));
+    echo $salida_sql;
+    exit();
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+La exportación incluye **todas las tablas** de `bienes_nacionales_uptag`, incluyendo la tabla `usuarios` con los hashes de contraseñas. Trata el archivo `.sql` generado como información confidencial y almacénalo en un lugar seguro con acceso restringido.
+</Warning>
+
+<Tip>
+Realiza exportaciones periódicas antes de actualizaciones importantes del sistema o al finalizar cada semestre académico. El nombre de archivo incluye la marca de tiempo exacta (`Y-m-d_H-i-s`), lo que facilita identificar cada copia sin ambigüedad.
+</Tip>
+
+### Tablas incluidas en la exportación
+
+El volcado abarca la totalidad de las tablas en el orden en que `SHOW TABLES` las devuelve:
+
+| Tabla | Descripción |
+|---|---|
+| `usuarios` | Cuentas de acceso al sistema |
+| `categorias` | Categorías de clasificación de bienes |
+| `estatus` | Estados posibles de un bien |
+| `dependencias` | Unidades organizativas de la universidad |
+| `ubicaciones` | Espacios físicos dentro de cada dependencia |
+| `proveedores` | Proveedores para compras |
+| `donaciones` | Registros de bienes donados |
+| `adquisiciones` | Órdenes de compra y facturas |
+| `responsables` | Custodios asignados a los bienes |
+| `bienes` | Inventario principal de bienes nacionales |
+| `movimientos` | Traslados, asignaciones y desincorporaciones |
+| `control_perceptivo` | Verificaciones físicas periódicas |
+| `auditoria` | Historial de actividad del sistema |
+
+---
+
+## Perfil de usuario (`perfil.php`)
+
+Todos los usuarios, independientemente del rol, pueden acceder a su perfil personal. La página `perfil.php` lee la cédula del usuario desde `$_SESSION['usuario']['cedula']`.
+
+### Información mostrada
+
+| Campo | Fuente |
+|---|---|
+| Nombre completo | `$_SESSION['usuario']['nombre']` + `$_SESSION['usuario']['apellido']` |
+| Cédula | `$_SESSION['usuario']['cedula']` |
+| Correo electrónico | Obtenido fresco desde `SELECT email FROM usuarios WHERE cedula = ?` |
+| Rol | `$_SESSION['usuario']['rol']` con badge de color (rojo para Administrador, verde para Usuario) |
+| Estado | Siempre **Activo** (un usuario inactivo no puede tener sesión abierta) |
+
+### Cambiar correo electrónico
+
+Haz clic en **Cambiar Correo** para mostrar el formulario inline (`id="form-correo"`). El formulario envía `POST` con `accion=cambiar_correo`.
+
+**Validaciones aplicadas:**
+
+- El campo `email_actual` debe coincidir exactamente con el email registrado en la BD.
+- El `nuevo_email` es validado con `filter_var($nuevo_email, FILTER_VALIDATE_EMAIL)`.
+- Se verifica que ningún otro usuario tenga el nuevo email: `SELECT cedula FROM usuarios WHERE email = ? AND cedula != ?`.
+
+Si la actualización es exitosa, la sesión se actualiza en tiempo real (`$_SESSION['usuario']['email'] = $nuevo_email`) y se inserta un registro en la tabla `auditoria`.
+
+### Cambiar contraseña
+
+Haz clic en **Cambiar Contraseña** para mostrar el formulario inline (`id="form-contrasena"`). El formulario envía `POST` con `accion=cambiar_contrasena`.
+
+La contraseña nueva debe cumplir **todos** los siguientes requisitos (validados en servidor y visualizados en tiempo real en el cliente):
+
+<CardGroup cols={2}>
+  <Card title="Longitud" icon="ruler">
+    Al menos **8 caracteres** (`strlen($nueva_contrasena) >= 8`).
+  </Card>
+  <Card title="Mayúscula" icon="text-case">
+    Al menos **una letra mayúscula** (`preg_match('/[A-Z]/', $nueva_contrasena)`).
+  </Card>
+  <Card title="Minúscula" icon="text-case">
+    Al menos **una letra minúscula** (`preg_match('/[a-z]/', $nueva_contrasena)`).
+  </Card>
+  <Card title="Número" icon="hash">
+    Al menos **un dígito** (`preg_match('/\d/', $nueva_contrasena)`).
+  </Card>
+  <Card title="Carácter especial" icon="asterisk">
+    Al menos **un carácter no alfanumérico** (`preg_match('/[^A-Za-z0-9]/', $nueva_contrasena)`).
+  </Card>
+  <Card title="Confirmación" icon="check">
+    `nueva_contrasena === confirmar_contrasena`. El botón **Actualizar Contraseña** permanece deshabilitado hasta que todos los criterios se cumplen.
+  </Card>
+</CardGroup>
+
+Si la validación pasa, se aplica `password_hash($nueva_contrasena, PASSWORD_DEFAULT)` y se ejecuta:
+
+```php
+$update = "UPDATE usuarios SET password_hash = ? WHERE cedula = ?";
+```
+
+El cambio queda registrado en `auditoria` con `datos_nuevos = '{"password":"cambiado"}'` — el hash nunca se expone en la auditoría.
+
+<Warning>
+No existe un flujo de "contraseña anterior requerida" en `perfil.php`. Cualquier usuario con sesión activa puede cambiar su contraseña directamente. Asegúrate de cerrar sesión en dispositivos compartidos.
+</Warning>

@@ -1,0 +1,159 @@
+---
+title: 'Categorías'
+description: 'Clasifica los bienes nacionales por tipo. Soporta jerarquías mediante subcategorías y es compatible con el catálogo SIGECOF.'
+---
+
+Las categorías organizan los bienes del inventario en tipos reconocibles. Cada bien registrado debe pertenecer a una categoría; el sistema usa ese vínculo para filtrar el inventario, generar reportes y alinear los códigos con el clasificador presupuestario SIGECOF.
+
+**Navegar a:** Sidebar → **Categorías** → **Categorías**
+
+## Tabla `categorias`
+
+Esta tabla almacena tanto categorías raíz como subcategorías. La columna `categoria_padre_id` apunta a otra fila de la misma tabla, lo que permite construir una jerarquía de profundidad arbitraria.
+
+```sql
+CREATE TABLE `categorias` (
+  `id`                 int(11)      NOT NULL AUTO_INCREMENT,
+  `nombre`             varchar(100) NOT NULL,
+  `codigo`             varchar(20)  DEFAULT NULL,
+  `descripcion`        text         DEFAULT NULL,
+  `categoria_padre_id` int(11)      DEFAULT NULL,   -- FK a categorias.id
+  `activo`             tinyint(1)   DEFAULT 1,
+  `fecha_creacion`     timestamp    NOT NULL DEFAULT current_timestamp(),
+  `fecha_actualizacion`timestamp    NOT NULL DEFAULT current_timestamp()
+                                              ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_categoria_codigo` (`codigo`),
+  CONSTRAINT `categorias_ibfk_1`
+    FOREIGN KEY (`categoria_padre_id`) REFERENCES `categorias` (`id`)
+    ON DELETE SET NULL
+);
+```
+
+### Descripción de columnas
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | `int` AUTO_INCREMENT | Identificador único |
+| `nombre` | `varchar(100)` | Nombre visible de la categoría |
+| `codigo` | `varchar(20)` UNIQUE | Código corto (ej. `MOB-001`) |
+| `descripcion` | `text` | Descripción opcional |
+| `categoria_padre_id` | `int` | ID de la categoría padre; `NULL` indica categoría raíz |
+| `activo` | `tinyint(1)` | `1` = activa, `0` = inactiva |
+
+## Categoría predeterminada
+
+Al instalar la base de datos se inserta la siguiente categoría raíz:
+
+```sql
+INSERT INTO `categorias` VALUES
+  (1, 'Mobiliario y Equipo de Oficina', 'MOB-001',
+   'Mobiliario general para oficinas', NULL, 1, NOW(), NOW());
+```
+
+## Cómo funcionan las jerarquías
+
+Cualquier categoría puede convertirse en subcategoría de otra estableciendo `categoria_padre_id`. Las categorías raíz tienen ese campo en `NULL`.
+
+```
+Mobiliario y Equipo de Oficina  (categoria_padre_id = NULL)
+└── Sillas y Butacas            (categoria_padre_id = 1)
+    └── Sillas Ergonómicas      (categoria_padre_id = <id de Sillas y Butacas>)
+```
+
+<Note>
+La clave foránea usa `ON DELETE SET NULL`, por lo que eliminar una categoría padre no borra sus hijas: simplemente las convierte en categorías raíz.
+</Note>
+
+## Crear una categoría
+
+<Steps>
+  <Step title="Abre la sección Categorías">
+    Haz clic en **Categorías** en el sidebar y selecciona **Categorías**.
+  </Step>
+  <Step title="Completa el formulario">
+    Rellena los campos del formulario de registro:
+
+    | Campo | Obligatorio | Notas |
+    |---|---|---|
+    | **Nombre** | Sí | Nombre descriptivo del tipo de bien |
+    | **Código** | No | Debe ser único en toda la tabla |
+    | **Descripción** | No | Contexto adicional sobre la categoría |
+    | **Categoría padre** | No | Deja vacío para crear una categoría raíz |
+  </Step>
+  <Step title="Guarda">
+    Haz clic en **Guardar**. El sistema verifica que el código no esté duplicado antes de insertar el registro.
+  </Step>
+</Steps>
+
+## Buscar y filtrar categorías
+
+La página de listado incluye un buscador que filtra por `nombre`, `codigo` y `descripcion` usando `LIKE '%término%'` en el servidor. Los resultados se paginan en bloques de 15 registros.
+
+```php
+// Ejemplo de la consulta generada en categorias.php
+$sql = "SELECT * FROM categorias
+        WHERE nombre LIKE '%{$busqueda_escaped}%'
+           OR codigo LIKE '%{$busqueda_escaped}%'
+           OR descripcion LIKE '%{$busqueda_escaped}%'
+        ORDER BY id ASC
+        LIMIT 15 OFFSET {$offset}";
+```
+
+## Estatus de una categoría
+
+<CardGroup cols={2}>
+  <Card title="Activo" icon="circle-check">
+    La columna `activo = 1`. La categoría aparece en el selector al registrar bienes.
+  </Card>
+  <Card title="Inactivo" icon="circle-xmark">
+    La columna `activo = 0`. La categoría no aparece en el selector pero sus bienes asociados conservan el vínculo.
+  </Card>
+</CardGroup>
+
+<Warning>
+Desactivar una categoría que tiene bienes asociados no elimina esos bienes ni modifica su `categoria_id`. Solo ocultará la categoría en los formularios de registro nuevos.
+</Warning>
+
+## Uso en el registro de bienes
+
+Cuando registras un bien en `registrar_bien.php`, el campo **Categoría** hace referencia a `categorias.id` mediante la clave foránea `bienes.categoria_id`:
+
+```sql
+CONSTRAINT `bienes_ibfk_1`
+  FOREIGN KEY (`categoria_id`) REFERENCES `categorias` (`id`)
+```
+
+El campo es obligatorio: no se puede registrar un bien sin asignar una categoría.
+
+## Integración con SIGECOF
+
+SIGECOF (Sistema Integrado de Gestión y Control de las Finanzas Públicas) define un catálogo oficial de bienes para la administración pública venezolana. El script `insertar_categorias_sigecof.sql` extiende la tabla `categorias` con dos columnas adicionales y carga ese catálogo:
+
+```sql
+-- Columnas que agrega el script SIGECOF
+ALTER TABLE categorias
+  ADD COLUMN IF NOT EXISTS cuenta_presupuestaria VARCHAR(50) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS denominacion          VARCHAR(255) DEFAULT NULL;
+```
+
+Algunos ejemplos de categorías SIGECOF cargadas:
+
+| Código | Denominación | Cuenta presupuestaria |
+|---|---|---|
+| `01-01-01-01` | MOBILIARIO Y EQUIPO DE OFICINA | `4.01.01.01.001` |
+| `01-01-01-02` | EQUIPO DE CÓMPUTO | `4.01.01.01.002` |
+| `01-01-01-03` | MOBILIARIO Y EQUIPO EDUCACIONAL | `4.01.01.01.003` |
+| `01-01-01-04` | EQUIPO DE COMUNICACIONES | `4.01.01.01.004` |
+| `01-01-01-05` | MAQUINARIA Y HERRAMIENTAS | `4.01.01.01.005` |
+| `01-01-01-06` | VEHÍCULOS | `4.01.01.01.006` |
+
+El script `categorias del sistema.sql` carga el catálogo completo de bienes de consumo del Estado venezolano (más de 3 700 entradas), organizado bajo la cuenta presupuestaria `402010000` y sus subcuentas.
+
+<Tip>
+Si cargas el catálogo SIGECOF completo, utiliza los campos `codigo` y `denominacion` al registrar bienes para facilitar las conciliaciones presupuestarias.
+</Tip>
+
+## Reporte PDF
+
+Desde el listado puedes descargar un reporte en PDF con las categorías visibles (o todas, si no hay filtro activo). El botón **Descargar PDF** envía los datos actuales a `reporte_categorias.php`, que genera el documento con dompdf.

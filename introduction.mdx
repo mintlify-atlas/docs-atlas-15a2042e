@@ -1,0 +1,93 @@
+---
+title: "Introducción"
+description: "Sistema web de gestión de bienes nacionales para la Oficina de Bienes Nacionales de la UPTAG"
+---
+
+# Sistema de Bienes Nacionales UPTAG
+
+El **Sistema de Bienes Nacionales UPTAG** es una aplicación web institucional desarrollada para la **Universidad Politécnica Territorial de Falcón Alonso Gamero (UPTAG)**, específicamente para su **Oficina de Bienes Nacionales**.
+
+El sistema centraliza el control de todos los activos muebles de la institución: desde el ingreso inicial de un bien hasta su desincorporación formal, pasando por traslados, reasignaciones de responsable y generación de reportes oficiales en PDF.
+
+## ¿Para qué sirve este sistema?
+
+<CardGroup cols={2}>
+  <Card title="Registro de bienes" icon="box-archive">
+    Alta de activos con código único de Bien Nacional, datos descriptivos completos (marca, modelo, serial, color, dimensiones) y valor de adquisición.
+  </Card>
+  <Card title="Control de movimientos" icon="arrow-right-arrow-left">
+    Registro de traslados entre ubicaciones y dependencias, con historial completo trazable por bien.
+  </Card>
+  <Card title="Búsqueda avanzada" icon="magnifying-glass">
+    Localice cualquier bien por código, descripción, marca, modelo, serial, categoría o estatus. Exporte los resultados a PDF.
+  </Card>
+  <Card title="Reportes oficiales" icon="file-pdf">
+    Genere reportes de inventario general, movimientos por período y distribución por ubicación en formato PDF.
+  </Card>
+  <Card title="Desincorporación formal" icon="trash-can">
+    Proceso de baja con registro de motivo, fecha y leyenda oficial, tal como lo exige la normativa venezolana de bienes nacionales.
+  </Card>
+  <Card title="Auditoría completa" icon="shield-check">
+    Cada acción del sistema queda registrada en la tabla de auditoría con usuario, fecha, IP y datos anteriores/nuevos.
+  </Card>
+</CardGroup>
+
+## Roles de usuario
+
+El sistema maneja dos roles diferenciados:
+
+| Rol | Acceso |
+|-----|--------|
+| **Administrador** | Acceso completo: gestión de bienes, usuarios, auditoría, configuración y exportación de BD |
+| **Usuario** | Registro y consulta de bienes, movimientos, categorías, lugares y reportes |
+
+<Note>
+  Solo los usuarios con rol **Administrador** pueden acceder a la gestión de usuarios (`gestion_usuarios.php`), la auditoría del sistema (`auditoria_sistema.php`) y la configuración avanzada (`configuracion.php`).
+</Note>
+
+## Stack tecnológico
+
+| Componente | Tecnología |
+|------------|------------|
+| Backend | PHP 8+ |
+| Base de datos | MySQL / MariaDB |
+| Frontend | Bootstrap 4, jQuery 3.1, Material Design |
+| Generación de PDF | DOMPDF (incluida en `librerias/`) |
+| Fuente tipográfica | Montserrat (incluida en `fonts/`) |
+| Servidor recomendado | XAMPP (Apache + MySQL) |
+
+## Estructura del proyecto
+
+```
+SISTEMA_BIENES_NACIONALES_UPTAG/
+├── assets/                  # Imágenes, CSS y JS del landing público
+├── css/                     # Bootstrap y Material Design
+├── fonts/                   # Fuente Montserrat (estática)
+├── js/                      # jQuery y plugins del dashboard
+├── librerias/               # DOMPDF para generación de PDFs
+├── conexion.php             # Configuración de conexión a BD
+├── Loggin.php               # Autenticación de usuarios
+├── home.php                 # Panel principal (dashboard)
+├── buscar.php               # Búsqueda avanzada de bienes
+├── registrar_bien.php       # Alta de nuevos bienes
+├── editar_bien.php          # Edición de bienes existentes
+├── registrar_movimiento.php # Registro de traslados
+├── categorias.php           # Gestión de categorías
+├── lugares_dependencias.php # Gestión de ubicaciones y dependencias
+├── generar_reporte_*.php    # Exportación de reportes a PDF
+├── gestion_usuarios.php     # CRUD de usuarios (solo Admin)
+├── auditoria_sistema.php    # Visor de auditoría (solo Admin)
+├── configuracion.php        # Configuración del sistema (solo Admin)
+└── bd_bienes_nacionales.sql # Script de creación de la base de datos
+```
+
+## Próximos pasos
+
+<CardGroup cols={2}>
+  <Card title="Instalación rápida" icon="rocket" href="/quickstart">
+    Levante el sistema en menos de 10 minutos con XAMPP.
+  </Card>
+  <Card title="Guía de instalación completa" icon="server" href="/getting-started/installation">
+    Configuración detallada para entornos locales y de producción.
+  </Card>
+</CardGroup>

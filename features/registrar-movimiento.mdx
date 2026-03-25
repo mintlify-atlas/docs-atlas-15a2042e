@@ -1,0 +1,164 @@
+---
+title: Registrar Movimiento
+description: Cómo registrar traslados, préstamos, cambios de estatus y otros movimientos de bienes nacionales en UPTAG.
+---
+
+# Registrar Movimiento
+
+Un movimiento es cualquier evento que modifica el estado, ubicación o responsable de un bien. El sistema mantiene un historial completo de todos los movimientos en la tabla `movimientos`.
+
+<Info>
+  Ruta de navegación: **Gestión de Bienes → Registrar Movimiento** (`registrar_movimiento.php`)
+</Info>
+
+## Qué es un movimiento
+
+Un movimiento registra el desplazamiento o cambio de estado de un bien entre dos puntos. El formulario ofrece los siguientes tipos (valores del campo `tipo_movimiento` tal como se envían y almacenan):
+
+<CardGroup cols={2}>
+  <Card title="traslado" icon="truck">
+    Cambio de ubicación física del bien. Actualiza `bienes.ubicacion_id` al valor de `ubicacion_destino_id`.
+  </Card>
+  <Card title="prestamo" icon="arrow-right-left">
+    Salida temporal del bien de las instalaciones. No actualiza la ubicación en `bienes`.
+  </Card>
+  <Card title="cambio_estatus" icon="arrows-rotate">
+    Modifica el campo `bienes.estatus_id` al valor seleccionado en **Nuevo Estatus**.
+  </Card>
+  <Card title="mantenimiento" icon="wrench">
+    Envío a reparación o mantenimiento externo. El bien queda con el estatus correspondiente.
+  </Card>
+  <Card title="desincorporacion" icon="circle-xmark">
+    Baja definitiva del bien. Cambia `bienes.estatus_id` a `4` (Desincorporado).
+  </Card>
+  <Card title="incorporacion" icon="circle-plus">
+    Registro de entrada inicial. Se crea automáticamente al registrar un bien con ubicación asignada.
+  </Card>
+</CardGroup>
+
+<Note>
+  El campo `tipo_movimiento` en la tabla `movimientos` está definido como un `enum` con valores en mayúscula inicial: `Incorporacion`, `Traslado`, `Desincorporacion`, `Asignacion`, `Reparacion`, `Devolucion`. El formulario envía los valores en minúsculas. MySQL acepta la comparación insensible a mayúsculas para los enums en la mayoría de configuraciones. Si necesita agregar nuevos tipos (como `Prestamo` o `Mantenimiento`), deberá primero extender el `enum` de la tabla con un `ALTER TABLE`.
+</Note>
+
+## Proceso de registro
+
+<Steps>
+  <Step title="Buscar el bien">
+    En la parte superior de la página, ingrese el `codigo_bien_nacional` y haga clic en **Buscar** (petición GET con parámetros `buscar=1&codigo_bien=…`). 
+
+    El sistema muestra una tarjeta con los datos del bien encontrado: código, descripción, marca, modelo, serial, ubicación actual y estatus actual.
+  </Step>
+  <Step title="Completar el formulario de movimiento">
+    Con el bien cargado, llene los campos del movimiento. Solo `tipo_movimiento` y `fecha_movimiento` son estrictamente requeridos.
+  </Step>
+  <Step title="Registrar">
+    Haga clic en **Registrar Movimiento**. El sistema inserta el registro en `movimientos`, actualiza `bienes` según el tipo y ofrece la opción de descargar el PDF del movimiento.
+  </Step>
+</Steps>
+
+## Campos del formulario
+
+### Campos requeridos
+
+| Campo | Descripción |
+|---|---|
+| `bien_id` (oculto) | ID interno del bien. Se obtiene de la búsqueda previa |
+| `codigo_bien` (oculto) | Código del bien. Se confirma en la búsqueda previa |
+| `tipo_movimiento` * | Tipo de evento: `traslado`, `prestamo`, `cambio_estatus`, `mantenimiento`, `desincorporacion`, `incorporacion` |
+| `fecha_movimiento` * | Fecha en que ocurre el movimiento. Se pre-rellena con la fecha actual |
+
+### Campos opcionales
+
+| Campo | Descripción |
+|---|---|
+| `ubicacion_origen_id` | Ubicación de origen (pre-seleccionada con la ubicación actual del bien) |
+| `ubicacion_destino_id` | Ubicación de destino (requerida para `traslado`) |
+| `responsable_origen_id` | Responsable que entrega el bien |
+| `responsable_destino_id` | Responsable que recibe el bien |
+| `numero_documento` | Número de oficio o documento de respaldo (p. ej. `OFI-2026-001`) |
+| `razon` | Motivo o razón del movimiento (se almacena en `movimientos.razon`) |
+| `observaciones` | Notas adicionales |
+| `estatus_destino_id` | Nuevo estatus (solo visible para `cambio_estatus` y `desincorporacion`) |
+
+<Note>
+  Si `razon` se deja vacío, el sistema almacena el texto `'Movimiento registrado sin razón específica'` como valor por defecto.
+</Note>
+
+## Estructura de la tabla `movimientos`
+
+```sql
+CREATE TABLE `movimientos` (
+  `id`                    int(11) NOT NULL AUTO_INCREMENT,
+  `bien_id`               int(11) NOT NULL,
+  `tipo_movimiento`       enum(
+                            'Incorporacion','Traslado','Desincorporacion',
+                            'Asignacion','Reparacion','Devolucion'
+                          ) NOT NULL,
+  `ubicacion_origen_id`   int(11) DEFAULT NULL,
+  `ubicacion_destino_id`  int(11) DEFAULT NULL,
+  `responsable_origen_id` int(11) DEFAULT NULL,
+  `responsable_destino_id` int(11) DEFAULT NULL,
+  `fecha_movimiento`      date NOT NULL,
+  `razon`                 text NOT NULL,
+  `numero_documento`      varchar(50) DEFAULT NULL,
+  `observaciones`         text DEFAULT NULL,
+  `usuario_registro`      varchar(20) DEFAULT NULL,
+  `fecha_creacion`        timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  FOREIGN KEY (`bien_id`) REFERENCES `bienes` (`id`),
+  FOREIGN KEY (`ubicacion_origen_id`) REFERENCES `ubicaciones` (`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`ubicacion_destino_id`) REFERENCES `ubicaciones` (`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`responsable_origen_id`) REFERENCES `responsables` (`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`responsable_destino_id`) REFERENCES `responsables` (`id`) ON DELETE SET NULL,
+  FOREIGN KEY (`usuario_registro`) REFERENCES `usuarios` (`cedula`) ON DELETE SET NULL
+);
+```
+
+## Efectos sobre la tabla `bienes`
+
+Según el `tipo_movimiento`, el sistema ejecuta actualizaciones adicionales en `bienes` dentro de la misma transacción:
+
+| Tipo (valor del form) | Efecto en `bienes` |
+|---|---|
+| `traslado` | `UPDATE bienes SET ubicacion_id = {ubicacion_destino_id} WHERE id = {bien_id}` |
+| `cambio_estatus` | `UPDATE bienes SET estatus_id = {estatus_destino_id} WHERE id = {bien_id}` |
+| `desincorporacion` | `UPDATE bienes SET estatus_id = 4 WHERE id = {bien_id}` |
+| `prestamo`, `mantenimiento`, `incorporacion` | Sin cambios directos en `bienes` (solo se inserta el registro en `movimientos`) |
+
+## Widget «Últimos Movimientos» en el dashboard
+
+El panel principal (`home.php`) muestra los **4 movimientos más recientes** del sistema en el widget _Últimos Movimientos_:
+
+```sql
+SELECT
+    m.id,
+    m.fecha_movimiento,
+    m.tipo_movimiento,
+    m.observaciones,
+    b.descripcion AS bien_descripcion,
+    b.codigo_bien_nacional,
+    u_origen.nombre AS ubicacion_origen,
+    u_destino.nombre AS ubicacion_destino
+FROM movimientos m
+LEFT JOIN bienes b ON m.bien_id = b.id
+LEFT JOIN ubicaciones u_origen ON m.ubicacion_origen_id = u_origen.id
+LEFT JOIN ubicaciones u_destino ON m.ubicacion_destino_id = u_destino.id
+ORDER BY m.id DESC
+LIMIT 4
+```
+
+## Ver historial de movimientos de un bien
+
+Para consultar todos los movimientos de un bien específico:
+
+1. Vaya a **Búsqueda de Bienes** (`buscar.php`).
+2. Busque el bien por `codigo_bien_nacional` u otro criterio.
+3. En los resultados, cada tarjeta de bien despliega la tabla **Historial de Movimientos** con todos sus movimientos ordenados de más reciente a más antiguo.
+
+<Tip>
+  Después de registrar un movimiento exitosamente, el sistema muestra el botón **Descargar PDF del Movimiento**, que genera un comprobante a través de `pdf_movimiento.php`. Los datos del último movimiento se almacenan temporalmente en `$_SESSION['ultimo_movimiento']`.
+</Tip>
+
+<Warning>
+  La tabla `movimientos` define el `tipo_movimiento` como un `enum` con los valores: `Incorporacion`, `Traslado`, `Desincorporacion`, `Asignacion`, `Reparacion`, `Devolucion` (primera letra en mayúscula). El formulario HTML envía los valores en minúscula (`traslado`, `desincorporacion`, etc.) sin conversión previa. MySQL acepta estos valores de forma insensible a mayúsculas en el modo `STRICT_TRANS_TABLES` deshabilitado, pero en entornos con modo estricto activo podría rechazar los valores. Si encuentra errores de inserción, verifique que la variable `SQL_MODE` del servidor no incluya `STRICT_TRANS_TABLES`.
+</Warning>

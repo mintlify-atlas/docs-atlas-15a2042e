@@ -1,80 +1,134 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Inicio rápido"
+description: "Levante el sistema en menos de 10 minutos con XAMPP"
 ---
 
-## Get started in three steps
+## Requisitos previos
 
-Get your documentation site running locally and make your first customization.
+Antes de comenzar, asegúrese de tener instalado:
 
-### Step 1: Set up your local environment
+- **XAMPP** (incluye Apache 2.4+ y MySQL/MariaDB 10.4+)
+- **PHP 8.0** o superior (incluido en XAMPP)
+- Un navegador web actualizado (Chrome, Firefox, Edge)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Instalación en 5 pasos
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Descargue el repositorio">
+    Clone o descargue el repositorio en la carpeta `htdocs` de XAMPP:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    git clone https://github.com/Irving2223/SISTEMA_BIENES_NACIONALES_UPTAG.git "C:/xampp/htdocs/bienes"
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    O descargue el ZIP desde GitHub y extráigalo en `C:/xampp/htdocs/bienes`.
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Inicie los servicios de XAMPP">
+    Abra el **Panel de Control de XAMPP** e inicie:
+    - **Apache** — servidor web
+    - **MySQL** — motor de base de datos
+  </Step>
 
-### Step 3: Go live
+  <Step title="Importe la base de datos">
+    Abra su navegador y vaya a `http://localhost/phpmyadmin`. Luego:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    1. Haga clic en **Nueva** para crear una base de datos llamada `bienes_nacionales_uptag`
+    2. Seleccione la base de datos recién creada
+    3. Haga clic en la pestaña **Importar**
+    4. Seleccione el archivo `bd_bienes_nacionales.sql` de la raíz del proyecto
+    5. Haga clic en **Continuar**
 
-## Next steps
+    O desde la terminal:
 
-Now that you have your docs running, explore these key features:
+    ```bash
+    mysql -u root -p bienes_nacionales_uptag < bd_bienes_nacionales.sql
+    ```
+  </Step>
+
+  <Step title="Configure la conexión a la base de datos">
+    Edite el archivo `conexion.php` en la raíz del proyecto:
+
+    ```php conexion.php
+    <?php
+    $host = "localhost";
+    $user = "root";      // Usuario de MySQL
+    $pass = "";          // Contraseña de MySQL (vacía en XAMPP por defecto)
+    $db   = "bienes_nacionales_uptag";
+
+    $conn = mysqli_connect($host, $user, $pass, $db);
+    ?>
+    ```
+
+    <Warning>
+      En producción, use un usuario de base de datos con privilegios limitados y una contraseña segura. Nunca use `root` en producción.
+    </Warning>
+  </Step>
+
+  <Step title="Acceda al sistema">
+    Abra su navegador y navegue a:
+
+    ```
+    http://localhost/bienes/
+    ```
+
+    Verá la página de bienvenida institucional. Haga clic en **Iniciar Sesión** e ingrese las credenciales por defecto:
+
+    | Campo | Valor |
+    |-------|-------|
+    | Cédula | `12345678` |
+    | Contraseña | `Admin123!` |
+
+    <Warning>
+      Cambie estas credenciales inmediatamente después del primer acceso. Vaya a su **Perfil** para actualizar la contraseña.
+    </Warning>
+  </Step>
+</Steps>
+
+## Verificación del sistema
+
+Una vez dentro, el **panel principal** debe mostrar:
+
+- **Total Bienes**: contador de activos registrados
+- **Desincorporados**: bienes dados de baja
+- **Responsables**: ubicaciones con responsable asignado
+- **Bienes de Hoy**: altas registradas en el día
+
+Si todos los contadores cargan sin error, el sistema está funcionando correctamente.
+
+## Primer bien registrado
+
+Para registrar su primer bien nacional:
+
+<Steps>
+  <Step title="Ir a Gestión de Bienes">
+    En el menú lateral izquierdo, haga clic en **Gestión de Bienes** → **Registrar Bien**.
+  </Step>
+  <Step title="Completar el formulario">
+    Ingrese los datos requeridos:
+    - **Código de Bien Nacional** (o déjelo vacío para generación automática)
+    - **Descripción** del bien
+    - **Categoría** (ej. Mobiliario y Equipo de Oficina)
+    - **Estatus** (ej. Activo)
+  </Step>
+  <Step title="Guardar">
+    Haga clic en **Registrar**. El bien aparecerá en el dashboard en la tabla "Últimos Bienes Registrados".
+  </Step>
+</Steps>
+
+## Próximos pasos
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Instalación detallada" icon="server" href="/getting-started/installation">
+    Configuración avanzada para entornos de producción
+  </Card>
+  <Card title="Configuración de la BD" icon="database" href="/getting-started/database-setup">
+    Estructura de tablas y datos iniciales
+  </Card>
+  <Card title="Registrar un bien" icon="box-archive" href="/features/registrar-bien">
+    Guía completa del formulario de registro
+  </Card>
+  <Card title="Gestión de usuarios" icon="users" href="/admin/gestion-usuarios">
+    Crear y administrar cuentas de usuario
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

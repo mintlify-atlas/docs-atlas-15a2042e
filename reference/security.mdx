@@ -1,0 +1,370 @@
+---
+title: Security Reference
+description: Authentication, session management, role-based access control, SQL injection protection, input validation, and audit trail implementation in the Sistema de Bienes Nacionales UPTAG.
+---
+
+This page documents every security mechanism implemented in the system, traced directly to the source files.
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="#authentication">
+    Cédula-based login with bcrypt password hashing
+  </Card>
+  <Card title="Session Management" icon="clock" href="#session-management">
+    PHP sessions with 10-minute inactivity timeout
+  </Card>
+  <Card title="Role-Based Access" icon="shield" href="#role-based-access-control">
+    Administrador vs. Usuario permission model
+  </Card>
+  <Card title="Audit Trail" icon="list" href="#audit-trail">
+    All login events and data changes logged with IP
+  </Card>
+</CardGroup>
+
+---
+
+## Authentication
+
+*Source: `Loggin.php`*
+
+### Login credential format
+
+Users log in with their Venezuelan national ID (cédula) and a password. The cédula field accepts only 7–8 numeric digits, validated on both the client and server:
+
+```php
+// Server-side validation in Loggin.php
+if (!preg_match('/^[0-9]{7,8}$/', $cedula)) {
+    $mensaje = "Formato de cédula inválido. Use solo números (7-8 dígitos)";
+    $tipo_mensaje = "error";
+}
+```
+
+```js
+// Client-side validation (Loggin.php inline script)
+const cedulaRegex = /^[0-9]{7,8}$/;
+if (!cedulaRegex.test(cedula)) {
+    e.preventDefault();
+    alert('La cédula debe tener entre 7 y 8 dígitos numéricos');
+}
+```
+
+### Password hashing
+
+Passwords are stored as bcrypt hashes using PHP's `PASSWORD_DEFAULT` constant, which maps to bcrypt at the time of writing:
+
+```php
+// When creating or updating a password
+$hash = password_hash($clave, PASSWORD_DEFAULT);
+```
+
+Verification uses `password_verify()`, which handles the bcrypt comparison and is resistant to timing attacks:
+
+```php
+// In Loggin.php — verifying the submitted password
+elseif (password_verify($clave, $usuario_data['password_hash'])) {
+    // Build session array
+    $_SESSION['usuario'] = [
+        'cedula'         => $usuario_data['cedula'],
+        'nombre'         => $usuario_data['nombres'],
+        'rol'            => $usuario_data['rol'],
+        'loggeado'       => true,
+        'ultimo_acceso'  => time()
+    ];
+    header("Location: home.php");
+    exit();
+}
+```
+
+### Account status check
+
+Before password verification, the system checks `usuarios.activo`. If the account is disabled (`activo = 0`), login is rejected and the failed attempt is recorded in `auditoria`:
+
+```php
+if ($usuario_data['activo'] != 1) {
+    $mensaje = "Su usuario está inactivo. Contacte al administrador.";
+    // ... log to auditoria with motivo = 'usuario_inactivo'
+}
+```
+
+<Warning>
+  The `activo` flag is a soft control. A disabled user cannot log in, but their data remains in the database. Only an `Administrador` can re-enable an account.
+</Warning>
+
+---
+
+## Session Management
+
+*Source: `home.php`, `header.php`, `conexion.php`*
+
+### Session initialization
+
+Every protected page starts the PHP session with `session_start()`. The session is initialized in `Loggin.php` on successful login, and the `$_SESSION['usuario']` array carries the user state:
+
+```php
+$_SESSION['usuario'] = [
+    'cedula'          => $usuario_data['cedula'],
+    'nombre'          => $usuario_data['nombres'],
+    'apellido'        => '',
+    'nombre_completo' => trim($usuario_data['nombres']),
+    'rol'             => $usuario_data['rol'],
+    'loggeado'        => true,
+    'ultimo_acceso'   => time()
+];
+```
+
+### Session validation guard
+
+`header.php` is included at the top of every protected page. It performs two checks:
+
+1. **Logged-in check** — redirects to `Loggin.php` if the session is missing or `loggeado !== true`
+2. **Inactivity timeout** — destroys the session and redirects with `?inactividad=1` if the user has been idle for more than 10 minutes
+
+```php
+// header.php — session guard (used on most protected pages)
+session_start();
+
+if (!isset($_SESSION['usuario']) || $_SESSION['usuario']['loggeado'] !== true) {
+    header('Location: Loggin.php?error=Debe+iniciar+sesi%C3%B1n+para+acceder');
+    exit;
+}
+
+$inactividad_maxima = 600; // 10 minutes in seconds
+
+if (isset($_SESSION['usuario']['ultimo_acceso'])
+    && (time() - $_SESSION['usuario']['ultimo_acceso']) > $inactividad_maxima) {
+    session_destroy();
+    header('Location: Loggin.php?error=Sesión+expirada+por+inactividad'); // header.php
+    // home.php uses: header('Location: Loggin.php?inactividad=1');
+    exit;
+}
+
+// Refresh the timestamp on every page load
+$_SESSION['usuario']['ultimo_acceso'] = time();
+```
+
+`conexion.php` also refreshes the timestamp as part of its inclusion:
+
+```php
+// conexion.php
+$_SESSION['usuario']['ultimo_acceso'] = time();
+```
+
+### Inactivity timeout
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| `$inactividad_maxima` | `600` seconds (10 minutes) | `home.php:14`, `header.php:15` |
+| Timeout redirect (`home.php`) | `Loggin.php?inactividad=1` | `home.php:18` |
+| Timeout redirect (`header.php`) | `Loggin.php?error=Sesión+expirada+por+inactividad` | `header.php:19` |
+| Timestamp key | `$_SESSION['usuario']['ultimo_acceso']` | Updated on every page request |
+
+When a user lands on `Loggin.php` with `?inactividad=1` set, the following message is displayed:
+
+```php
+if (isset($_GET['inactividad'])) {
+    $mensaje_cierre_sesion = "Su sesión ha sido cerrada por inactividad.
+        Por favor, inicie sesión nuevamente.";
+}
+```
+
+<Note>
+  The timeout is checked server-side on every page load, not with a client-side JavaScript timer. The commented-out JS timer in `header.php` is not active in the current build.
+</Note>
+
+### Session destruction
+
+Users can explicitly end their session by navigating to `salir.php`. On timeout, `session_destroy()` is called before the redirect to ensure all session data is cleared.
+
+---
+
+## Role-Based Access Control
+
+*Source: `home.php`, `header.php`*
+
+### Roles
+
+The system has exactly two roles, stored in `usuarios.rol` as an `enum`:
+
+| Role | Access |
+|------|--------|
+| `Administrador` | Full access including `configuracion.php`, `gestion_usuarios.php`, and all write operations |
+| `Usuario` | Read and limited write access; cannot access admin-only pages |
+
+### Role check pattern
+
+Admin-only pages check the role from the session and redirect unauthorized users to `index.php`:
+
+```php
+// Typical admin guard used throughout the application
+$es_administrador = ($_SESSION['usuario']['rol'] === 'Administrador');
+
+if (!$es_administrador) {
+    header('Location: index.php');
+    exit;
+}
+```
+
+### Menu visibility
+
+The sidebar in `header.php` and `home.php` conditionally renders the **Configuración** menu item:
+
+```php
+<?php if ($es_administrador): ?>
+    <li><a href="configuracion.php">
+        <i class="zmdi zmdi-settings"></i> Configuración
+    </a></li>
+<?php endif; ?>
+```
+
+<Info>
+  Hiding the menu item is a UX convenience only. The actual access restriction must always be enforced server-side at the top of each admin page.
+</Info>
+
+---
+
+## SQL Injection Protection
+
+*Source: `Loggin.php`, `home.php`*
+
+All database queries that incorporate user-supplied input use MySQLi prepared statements with `bind_param()`. Raw string interpolation into SQL is never used for user data.
+
+### Login query example
+
+```php
+// Loggin.php — parameterized login query
+$stmt = $conn->prepare(
+    "SELECT cedula, nombres, rol, password_hash, activo
+     FROM usuarios WHERE cedula = ?"
+);
+$stmt->bind_param("s", $cedula);
+$stmt->execute();
+$result = $stmt->get_result();
+```
+
+### Audit log write example
+
+```php
+// Loggin.php — parameterized audit insert
+$stmt_auditoria = $conn->prepare(
+    "INSERT INTO auditoria
+        (tabla_afectada, accion, usuario_cedula, datos_nuevos, ip_address)
+     VALUES ('usuarios', 'INSERT', ?, ?, ?)"
+);
+$ip    = $_SERVER['REMOTE_ADDR'] ?? '';
+$datos = json_encode(['accion' => 'inicio_sesion_exitoso']);
+$stmt_auditoria->bind_param("sss", $cedula, $datos, $ip);
+$stmt_auditoria->execute();
+$stmt_auditoria->close();
+```
+
+### Date-parameterized query example
+
+```php
+// home.php — parameterized date query
+$sql_hoy = "SELECT COUNT(*) AS total FROM bienes WHERE DATE(fecha_incorporacion) = ?";
+$stmt_hoy = $conn->prepare($sql_hoy);
+$stmt_hoy->bind_param("s", $hoy);
+$stmt_hoy->execute();
+```
+
+<Warning>
+  Always use `$stmt->close()` after executing a prepared statement to free the server-side cursor. Memory leaks from unclosed statements can degrade performance under load.
+</Warning>
+
+---
+
+## Input Validation
+
+### Output escaping
+
+All user-originated data rendered to HTML is escaped with `htmlspecialchars()` to prevent XSS:
+
+```php
+// Loggin.php — escaping a reflected form value
+value="<?= isset($_POST['username'])
+    ? htmlspecialchars($_POST['username'])
+    : '' ?>"
+
+// home.php — escaping session data in output
+<?php echo htmlspecialchars($usuario_nombre . ' ' . $usuario_apellido); ?>
+
+// Loggin.php — escaping the inactivity message
+<?= htmlspecialchars($mensaje_cierre_sesion) ?>
+```
+
+### Email validation
+
+When storing or updating email addresses, the system uses PHP's built-in `FILTER_VALIDATE_EMAIL`:
+
+```php
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    // reject invalid email
+}
+```
+
+### Form completeness check
+
+Before any processing, empty-field guards prevent partial submissions:
+
+```php
+// Loggin.php
+if (empty($cedula) || empty($clave)) {
+    $mensaje = "Por favor, complete todos los campos";
+    $tipo_mensaje = "error";
+}
+```
+
+---
+
+## Audit Trail
+
+*Source: `Loggin.php`, `auditoria` table*
+
+Every significant event writes a row to the `auditoria` table. The table is append-only by convention.
+
+### Events recorded at login
+
+| Event | `datos_nuevos` payload | `usuario_cedula` |
+|-------|------------------------|------------------|
+| Successful login | `{"accion": "inicio_sesion_exitoso"}` | Authenticated cédula |
+| Wrong password | `{"intento": "sesion_fallida", "motivo": "credenciales_incorrectas"}` | Submitted cédula |
+| User not found | `{"intento": "sesion_fallida", "motivo": "usuario_no_encontrado"}` | Submitted cédula |
+| Account inactive | `{"intento": "sesion_fallida", "motivo": "usuario_inactivo"}` | Submitted cédula |
+
+### Audit record structure
+
+```sql
+INSERT INTO auditoria
+    (tabla_afectada, accion, usuario_cedula, datos_nuevos, ip_address)
+VALUES
+    ('usuarios', 'INSERT', ?, ?, ?);
+-- bound parameters: $cedula, $datos (JSON string), $ip ($_SERVER['REMOTE_ADDR'])
+```
+
+| Field | Login value | Notes |
+|-------|-------------|-------|
+| `tabla_afectada` | `'usuarios'` | Hardcoded for login events |
+| `accion` | `'INSERT'` | Login events always use `INSERT` |
+| `usuario_cedula` | Submitted cédula | May belong to a non-existent user |
+| `datos_anteriores` | `NULL` | Not used for login events |
+| `datos_nuevos` | JSON string | Contains event type and failure reason |
+| `ip_address` | `$_SERVER['REMOTE_ADDR']` | Supports IPv6 (field is `varchar(45)`) |
+
+### Querying recent login history
+
+`home.php` retrieves the previous login timestamp for the welcome screen using:
+
+```php
+$sql_penultima_sesion = "
+    SELECT fecha_accion
+    FROM auditoria
+    WHERE usuario_cedula = ?
+      AND accion = 'INSERT'
+      AND datos_nuevos LIKE '%inicio_sesion_exitoso%'
+    ORDER BY fecha_accion DESC
+    LIMIT 1 OFFSET 1
+";
+```
+
+<Tip>
+  To query all failed login attempts for a specific user, filter by `datos_nuevos LIKE '%sesion_fallida%'` and `usuario_cedula = ?`.
+</Tip>

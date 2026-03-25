@@ -1,0 +1,183 @@
+---
+title: Gestión de usuarios
+description: Crea, edita y desactiva cuentas de usuario del Sistema de Bienes Nacionales UPTAG. Función exclusiva para el rol Administrador.
+---
+
+<Warning>
+Esta página es de acceso restringido. El sistema verifica `$_SESSION['usuario']['rol'] === 'Administrador'` en cada carga. Si el rol no coincide, se ejecuta `header("Location: index.php")` y la sesión es redirigida de inmediato.
+</Warning>
+
+## Acceder a gestión de usuarios
+
+Desde el menú lateral, navega a **Configuración** (visible únicamente para administradores) y luego haz clic en el botón **Gestionar** de la sección _Gestión de Usuarios_. Esto carga `gestion_usuarios.php`.
+
+---
+
+## Lista de usuarios
+
+Al abrir la página, la función `obtenerUsuarios()` consulta la tabla `usuarios` y muestra todos los registros en una tabla con las siguientes columnas:
+
+| Columna | Campo en BD | Notas |
+|---|---|---|
+| Cédula | `cedula` | Clave primaria, `varchar(20)` |
+| Nombre completo | `nombres` + `apellidos` | Concatenados con espacio |
+| Email | `email` | `varchar(100)` |
+| Rol | `rol` | `enum('Administrador','Usuario')` |
+| Estado | `activo` | Muestra badge verde **Activo** o rojo **Inactivo** |
+| Acción | — | Enlace a edición del registro |
+
+<Note>
+El código detecta automáticamente los nombres de columna reales con `SHOW COLUMNS FROM usuarios` antes de ejecutar cualquier consulta. Esto hace que la página tolere variaciones de esquema.
+</Note>
+
+---
+
+## Estructura de la tabla `usuarios`
+
+```sql
+CREATE TABLE `usuarios` (
+  `cedula`              varchar(20)  NOT NULL,
+  `password_hash`       varchar(255) NOT NULL,
+  `nombres`             varchar(100) NOT NULL,
+  `apellidos`           varchar(100) NOT NULL,
+  `email`               varchar(100) DEFAULT NULL,
+  `rol`                 enum('Administrador','Usuario') NOT NULL,
+  `activo`              tinyint(1)   DEFAULT 1,
+  `ultimo_acceso`       timestamp    NULL DEFAULT NULL,
+  `fecha_creacion`      timestamp    NOT NULL DEFAULT current_timestamp(),
+  `fecha_actualizacion` timestamp    NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`cedula`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+---
+
+## Crear un nuevo usuario
+
+Haz clic en **Crear Nuevo Usuario** para cargar el formulario (`?accion=crear`). El formulario envía `POST` con `accion=crear`.
+
+<Steps>
+  <Step title="Completa los campos requeridos">
+    Todos los campos marcados con asterisco son obligatorios.
+
+    <CardGroup cols={2}>
+      <Card title="Cédula" icon="id-card">
+        Campo `cedula`. Entre 7 y 8 dígitos. Debe ser único — el sistema ejecuta un `SELECT` previo y lanza una excepción si ya existe.
+      </Card>
+      <Card title="Nombre(s)" icon="user">
+        Campo `nombre` del formulario, guardado en la columna `nombres`. Obligatorio.
+      </Card>
+      <Card title="Apellido(s)" icon="user">
+        Campo `apellido` del formulario, guardado en `apellidos`. Opcional pero recomendado.
+      </Card>
+      <Card title="Correo electrónico" icon="envelope">
+        Campo `email`. Validado con `filter_var($email, FILTER_VALIDATE_EMAIL)`. Obligatorio.
+      </Card>
+      <Card title="Rol" icon="shield">
+        Selector entre `Administrador` y `Usuario`. Obligatorio. Corresponde al `enum` de la BD.
+      </Card>
+      <Card title="Contraseña" icon="lock">
+        Campo `clave`. Mínimo 8 caracteres. Nunca se almacena en texto plano — se aplica `password_hash($clave, PASSWORD_DEFAULT)` antes del `INSERT`.
+      </Card>
+    </CardGroup>
+  </Step>
+
+  <Step title="Estado del usuario">
+    El checkbox **Activo** (`name="activo"`) viene marcado por defecto. Si se deja marcado, el valor insertado en `activo` es `1`; si se desmarca, es `0`.
+  </Step>
+
+  <Step title="Envía el formulario">
+    Al hacer clic en **Crear Usuario**, el servidor ejecuta las validaciones. Si hay errores, se muestran en un bloque `alert-danger`. Si todo es correcto, se inserta el registro y aparece el mensaje "Usuario creado exitosamente."
+  </Step>
+</Steps>
+
+### Validaciones del servidor al crear
+
+```php
+// Cédula única
+$sql_check = "SELECT {$col_cedula} FROM usuarios WHERE {$col_cedula} = ?";
+// ... si num_rows > 0 → throw new Exception("Ya existe un usuario con esta cédula.")
+
+// Email
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    $errores[] = "El formato del correo electrónico es inválido.";
+}
+
+// Contraseña
+if (strlen($clave) < 8) {
+    $errores[] = "La contraseña debe tener al menos 8 caracteres.";
+}
+
+// Hash antes del INSERT
+$hash_clave = password_hash($clave, PASSWORD_DEFAULT);
+```
+
+<Warning>
+La contraseña **no puede recuperarse** una vez almacenada porque `password_hash` es irreversible. El formulario de edición de `gestion_usuarios.php` no incluye un campo de cambio de contraseña. Si un usuario olvida su contraseña, puede usar el flujo de recuperación en `recuperar_contraseña.php` (enlace en la página de login) o cambiarla desde su propio perfil en `perfil.php`.
+</Warning>
+
+---
+
+## Editar un usuario existente
+
+Haz clic en **Editar** en la fila correspondiente. El sistema carga `?accion=editar&cedula={cedula}` y recupera el registro mediante una consulta preparada.
+
+<CardGroup cols={2}>
+  <Card title="Campos editables" icon="pencil">
+    - `nombres` — Nombre(s)
+    - `apellidos` — Apellido(s)
+    - `email` — Correo electrónico
+    - `rol` — Administrador / Usuario
+    - `activo` — Estado activo/inactivo
+  </Card>
+  <Card title="Campos no editables" icon="lock">
+    **Cédula** — El campo se renderiza como `readonly` y el valor real se pasa en un input oculto `cedula_actual`. La cédula nunca puede modificarse desde esta interfaz.
+  </Card>
+</CardGroup>
+
+El formulario envía `POST` con `accion=actualizar`. El servidor ejecuta:
+
+```php
+$sql_update = "UPDATE usuarios SET " . implode(", ", $sets) . " WHERE {$col_cedula} = ?";
+```
+
+Las mismas validaciones de email y rol se aplican también en la actualización.
+
+<Note>
+El cambio de contraseña **no está disponible** en el formulario de edición de `gestion_usuarios.php`. Solo el propio usuario puede cambiar su contraseña desde **Perfil** (`perfil.php`).
+</Note>
+
+---
+
+## Roles del sistema
+
+<CardGroup cols={2}>
+  <Card title="Administrador" icon="crown">
+    Acceso completo al sistema. Puede gestionar usuarios, ver la auditoría, exportar la base de datos y acceder a todas las funciones de configuración. La variable `$es_superusuario` queda en `true`.
+  </Card>
+  <Card title="Usuario" icon="user">
+    Acceso a las funciones operativas del inventario (registrar bienes, movimientos, reportes). No puede acceder a `gestion_usuarios.php`, `auditoria_sistema.php` ni a las secciones administrativas de `configuracion.php`.
+  </Card>
+</CardGroup>
+
+---
+
+## Preguntas frecuentes
+
+<AccordionGroup>
+  <Accordion title="¿Se puede eliminar un usuario?">
+    El formulario de gestión de usuarios no incluye un botón de eliminación. La práctica recomendada es desactivar el usuario estableciendo `activo = 0` mediante el checkbox de estado en el formulario de edición.
+  </Accordion>
+
+  <Accordion title="¿Por qué la cédula no se puede editar?">
+    La cédula es la clave primaria (`PRIMARY KEY`) de la tabla `usuarios` y es referenciada como clave foránea en otras tablas (por ejemplo, `movimientos.usuario_registro` y `auditoria.usuario_cedula`). Cambiarla rompería la integridad referencial.
+  </Accordion>
+
+  <Accordion title="¿Qué pasa si un usuario inactivo intenta iniciar sesión?">
+    El proceso de login verifica el campo `activo`. Un usuario con `activo = 0` no puede autenticarse y el intento queda registrado en la tabla `auditoria`.
+  </Accordion>
+
+  <Accordion title="¿Cómo establece el administrador la contraseña inicial?">
+    Al crear el usuario, el administrador define la contraseña en el campo `clave`. El sistema la hashea con `password_hash($clave, PASSWORD_DEFAULT)` y la guarda en `password_hash`. El usuario debe cambiarla desde su perfil en el primer acceso.
+  </Accordion>
+</AccordionGroup>

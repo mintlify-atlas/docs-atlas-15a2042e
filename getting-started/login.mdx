@@ -1,0 +1,217 @@
+---
+title: Login and authentication
+description: How to sign in, manage your session, recover a forgotten password, and understand role-based access in the Sistema de Bienes Nacionales UPTAG.
+---
+
+## How login works
+
+The login form at `Loggin.php` accepts a **cédula** (7–8 digit Venezuelan national ID) and a **password**. On submission, the server:
+
+1. Validates that the cédula matches the pattern `^[0-9]{7,8}$`.
+2. Looks up the user in the `usuarios` table with a prepared statement.
+3. Checks the `activo` flag — inactive accounts are rejected.
+4. Verifies the password with PHP's `password_verify()` against the stored bcrypt hash.
+5. On success, writes the user data to `$_SESSION['usuario']` and redirects to `home.php`.
+
+```php
+// From Loggin.php
+$stmt = $conn->prepare(
+    "SELECT cedula, nombres, rol, password_hash, activo FROM usuarios WHERE cedula = ?"
+);
+$stmt->bind_param("s", $cedula);
+$stmt->execute();
+$result = $stmt->get_result();
+
+if ($result->num_rows > 0) {
+    $usuario_data = $result->fetch_assoc();
+
+    if (password_verify($clave, $usuario_data['password_hash'])) {
+        $_SESSION['usuario'] = [
+            'cedula'        => $usuario_data['cedula'],
+            'nombre'        => $usuario_data['nombres'],
+            'rol'           => $usuario_data['rol'],
+            'loggeado'      => true,
+            'ultimo_acceso' => time()
+        ];
+        header("Location: home.php");
+        exit();
+    }
+}
+```
+
+Every login attempt — successful or not — is recorded in the `auditoria` table with the cédula, outcome, and IP address.
+
+---
+
+## Default admin credentials
+
+| Field    | Value      |
+| -------- | ---------- |
+| Cédula   | `12345678` |
+| Password | `Admin123!` |
+
+<Warning>
+  These credentials are seeded by `bd_bienes_nacionales.sql`. Change the password immediately after the first login, either through **Perfil** or via the password recovery flow.
+</Warning>
+
+---
+
+## Session timeout
+
+Each protected page includes `header.php`, which enforces a **10-minute inactivity timeout**:
+
+```php
+// From header.php
+$inactividad_maxima = 600; // 10 minutes in seconds
+
+if (isset($_SESSION['usuario']['ultimo_acceso']) &&
+    (time() - $_SESSION['usuario']['ultimo_acceso']) > $inactividad_maxima) {
+    session_destroy();
+    header('Location: Loggin.php?error=Sesión+expirada+por+inactividad');
+    exit;
+}
+
+// Reset the timer on every page load
+$_SESSION['usuario']['ultimo_acceso'] = time();
+```
+
+When the session expires via `header.php`, the user is redirected to `Loggin.php?error=Sesión+expirada+por+inactividad`. The landing page `home.php` uses the slightly different parameter `?inactividad=1` on expiry and displays:
+
+```
+Su sesión ha sido cerrada por inactividad. Por favor, inicie sesión nuevamente.
+```
+
+<Info>
+  The timer resets on every full page load. AJAX calls to `actualizar_sesion.php` can also extend the session without a full reload.
+</Info>
+
+---
+
+## Password recovery
+
+The recovery flow in `recuperar_contraseña.php` has four steps:
+
+<Steps>
+  <Step title="Enter your email address">
+    Visit `recuperar_contraseña.php` (linked from the login page as **¿Olvidó su contraseña?**) and enter the email address registered to your account.
+  </Step>
+
+  <Step title="Receive the verification code">
+    The system generates a random 6-digit code, stores it in a **temporary file on disk** with a **3-minute expiry**, and sends it to your email via PHPMailer over Gmail SMTP:
+
+    ```php
+    // From recuperar_contraseña.php
+    $codigo = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT);
+    $storage_file = sys_get_temp_dir() . '/recuperacion_password.tmp';
+
+    $temp_storage[$email_usuario] = [
+        'cedula'        => $usuario['cedula'],
+        'codigo'        => $codigo,
+        'intentos'      => 0,
+        'max_intentos'  => 3,
+        'expiracion'    => time() + 180  // 3 minutes
+    ];
+    file_put_contents($storage_file, json_encode($temp_storage));
+    ```
+
+    The SMTP sender is configured as `gestiondebienesnacionalesuptag@gmail.com`. To use a different address, update the `Username`, `Password`, and `setFrom` values in `recuperar_contraseña.php`.
+
+    <Note>
+      If SMTP delivery fails, the system falls back to displaying the recovery code directly on-screen with a warning message.
+    </Note>
+  </Step>
+
+  <Step title="Enter the verification code">
+    Type the 6-digit code sent to your email. You have **3 attempts** before the code is invalidated. The countdown timer on the page shows the remaining validity window.
+  </Step>
+
+  <Step title="Set a new password">
+    Enter and confirm your new password. It must satisfy all five criteria:
+
+    - At least 8 characters
+    - At least one uppercase letter
+    - At least one lowercase letter
+    - At least one digit
+    - At least one special character
+
+    The new password is hashed with `password_hash($nueva_clave, PASSWORD_DEFAULT)` and stored in `usuarios.password_hash`.
+  </Step>
+</Steps>
+
+---
+
+## Changing your password from your profile
+
+While logged in, go to **Perfil** (the user icon in the top-right navbar, or `perfil.php`). Click **Cambiar Contraseña** to reveal the inline form.
+
+The same five-criteria validation applies:
+
+```php
+// From perfil.php
+if (!preg_match('/[A-Z]/', $nueva_contrasena)) {
+    $errores[] = "La nueva contraseña debe contener al menos una letra mayúscula.";
+} elseif (!preg_match('/[a-z]/', $nueva_contrasena)) {
+    $errores[] = "La nueva contraseña debe contener al menos una letra minúscula.";
+} elseif (!preg_match('/\d/', $nueva_contrasena)) {
+    $errores[] = "La nueva contraseña debe contener al menos un número.";
+} elseif (!preg_match('/[^A-Za-z0-9]/', $nueva_contrasena)) {
+    $errores[] = "La nueva contraseña debe contener al menos un carácter especial.";
+}
+
+// Hash and persist
+$hash_nuevo = password_hash($nueva_contrasena, PASSWORD_DEFAULT);
+$stmt_update = $conn->prepare("UPDATE usuarios SET password_hash = ? WHERE cedula = ?");
+$stmt_update->bind_param("ss", $hash_nuevo, $cedula);
+$stmt_update->execute();
+```
+
+You can also update your **email address** from the same profile page.
+
+---
+
+## Role-based access
+
+Every user has one of two roles, stored in `usuarios.rol`:
+
+<CardGroup cols={2}>
+  <Card title="Administrador" icon="crown">
+    Full access to all modules: asset management, user management, system configuration, audit log, and database export.
+  </Card>
+  <Card title="Usuario" icon="user">
+    Can search assets, register and edit assets, and record movements. Cannot access **Configuración** or **Gestión de Usuarios**.
+  </Card>
+</CardGroup>
+
+The role is read from `$_SESSION['usuario']['rol']` on every page. `header.php` sets the `$es_administrador` flag:
+
+```php
+// From header.php
+$es_administrador = ($_SESSION['usuario']['rol'] === 'Administrador');
+```
+
+The sidebar conditionally renders the **Configuración** link based on this flag:
+
+```php
+<?php if ($es_administrador): ?>
+    <li><a href="configuracion.php">Configuración</a></li>
+<?php endif; ?>
+```
+
+---
+
+## Security notes
+
+<CardGroup cols={2}>
+  <Card title="Prepared statements" icon="shield-check">
+    All database queries use `$conn->prepare()` with `bind_param()`, preventing SQL injection throughout the codebase.
+  </Card>
+  <Card title="bcrypt password hashing" icon="lock">
+    Passwords are stored using PHP's `password_hash()` with `PASSWORD_DEFAULT` (bcrypt). Verification uses `password_verify()`.
+  </Card>
+  <Card title="Session management" icon="clock">
+    Sessions expire after 10 minutes of inactivity. `session_destroy()` is called on logout (`salir.php`) and on session expiry.
+  </Card>
+  <Card title="Audit logging" icon="file-text">
+    Login attempts (success and failure), password changes, and data modifications are all recorded in the `auditoria` table with a timestamp and IP address.
+  </Card>
+</CardGroup>

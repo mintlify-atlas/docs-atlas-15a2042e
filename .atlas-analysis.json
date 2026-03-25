@@ -1,0 +1,107 @@
+{
+  "projectType": "saas",
+  "projectName": "Sistema de Bienes Nacionales UPTAG",
+  "projectDescription": "A web-based institutional asset management system for UPTAG university that handles the registration, tracking, movement, and decommissioning of national goods across departments.",
+  "theme": "linden",
+  "primaryColor": "#ff6600",
+  "lightColor": "#ffc400",
+  "darkColor": "#7a3b00",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guía del Sistema",
+        "groups": [
+          {
+            "group": "Introducción",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Primeros Pasos",
+            "pages": [
+              "getting-started/installation",
+              "getting-started/database-setup",
+              "getting-started/login"
+            ]
+          },
+          {
+            "group": "Gestión de Bienes",
+            "pages": [
+              "features/registrar-bien",
+              "features/editar-bien",
+              "features/buscar-bienes",
+              "features/registrar-movimiento",
+              "features/desincorporar-bien"
+            ]
+          },
+          {
+            "group": "Organización",
+            "pages": [
+              "features/categorias",
+              "features/lugares-dependencias"
+            ]
+          },
+          {
+            "group": "Reportes",
+            "pages": [
+              "features/reporte-inventario",
+              "features/reporte-movimientos",
+              "features/reporte-ubicaciones"
+            ]
+          },
+          {
+            "group": "Administración",
+            "pages": [
+              "admin/gestion-usuarios",
+              "admin/auditoria",
+              "admin/configuracion"
+            ]
+          },
+          {
+            "group": "Referencia",
+            "pages": [
+              "reference/database-schema",
+              "reference/security",
+              "reference/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Registro y control de bienes nacionales con código único",
+    "Historial completo de movimientos entre ubicaciones y dependencias",
+    "Búsqueda avanzada por código, descripción, marca, modelo, serial, categoría y estatus",
+    "Generación de reportes PDF de inventario, movimientos y ubicaciones",
+    "Desincorporación formal de bienes con registro de motivo y fecha",
+    "Gestión de usuarios con roles (Administrador / Usuario)",
+    "Registro de auditoría de todas las acciones del sistema",
+    "Exportación de respaldo de base de datos desde el panel de configuración",
+    "Dashboard con estadísticas en tiempo real (total de bienes, desincorporados, responsables, registros del día)",
+    "Autenticación por cédula con sesiones protegidas y tiempo de inactividad configurable"
+  ],
+  "publicApiSurface": [
+    "index.php — Landing page pública con presentación institucional",
+    "Loggin.php — Formulario de inicio de sesión (cédula + contraseña)",
+    "home.php — Panel principal con estadísticas y últimas actividades",
+    "buscar.php — Búsqueda avanzada de bienes con filtros",
+    "registrar_bien.php — Formulario de alta de nuevos bienes",
+    "editar_bien.php — Edición de datos de bienes existentes",
+    "registrar_movimiento.php — Registro de traslados de bienes",
+    "categorias.php — Gestión de categorías de bienes",
+    "lugares_dependencias.php — Gestión de ubicaciones y dependencias",
+    "editar_lugares_dependencias.php — Asignación de responsables a ubicaciones",
+    "generar_reporte_inventario.php — Exportación PDF del inventario general",
+    "generar_reporte_movimientos.php — Exportación PDF de movimientos",
+    "generar_reporte_ubicaciones.php — Exportación PDF por ubicación",
+    "gestion_usuarios.php — CRUD de usuarios (solo Administrador)",
+    "auditoria_sistema.php — Visor de log de auditoría (solo Administrador)",
+    "configuracion.php — Configuración del sistema y exportación de BD (solo Administrador)",
+    "perfil.php — Edición del perfil del usuario",
+    "recuperar_contraseña.php — Recuperación de contraseña",
+    "salir.php — Cierre de sesión"
+  ]
+}

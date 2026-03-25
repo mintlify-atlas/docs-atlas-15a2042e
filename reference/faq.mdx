@@ -1,0 +1,224 @@
+---
+title: Preguntas Frecuentes (FAQ)
+description: Respuestas a las preguntas más comunes sobre el uso del Sistema de Bienes Nacionales UPTAG.
+---
+
+<AccordionGroup>
+
+<Accordion title="¿Cómo cambio mi contraseña?">
+
+Navegue a su perfil desde el ícono de usuario en la barra de navegación superior, o acceda directamente a `perfil.php`. Desde allí encontrará un formulario para actualizar su contraseña.
+
+Pasos:
+1. Haga clic en el ícono de usuario (`zmdi-account-circle`) en la barra naranja superior.
+2. En `Perfil.php`, complete los campos de contraseña actual, nueva contraseña y confirmación.
+3. Guarde los cambios.
+
+<Note>
+  La nueva contraseña es almacenada como un hash bcrypt mediante `password_hash($clave, PASSWORD_DEFAULT)`. Nunca se guarda en texto plano.
+</Note>
+
+</Accordion>
+
+<Accordion title="¿Qué hago si olvidé mi contraseña?">
+
+En la pantalla de inicio de sesión (`Loggin.php`) encontrará el enlace **¿Olvidó su contraseña?** que lo dirige a `recuperar_contraseña.php`.
+
+Si el proceso de recuperación no está disponible o su cuenta está bloqueada, contacte al administrador del sistema para que restablezca su contraseña directamente en la tabla `usuarios`.
+
+<Warning>
+  Ningún usuario puede restablecer la contraseña de otro desde la interfaz web. El formulario de edición en `gestion_usuarios.php` no incluye un campo de contraseña. Si un usuario no puede completar el flujo de recuperación, un administrador debe actualizar el hash directamente en la base de datos o crear una cuenta nueva.
+</Warning>
+
+</Accordion>
+
+<Accordion title="¿Por qué me cierra la sesión automáticamente?">
+
+El sistema aplica un tiempo máximo de inactividad de **10 minutos** (`$inactividad_maxima = 600` segundos). Si no realiza ninguna acción dentro de ese tiempo, la sesión es destruida y es redirigido a `Loggin.php?inactividad=1`.
+
+Esta verificación ocurre en cada carga de página dentro de `header.php` y `home.php`:
+
+```php
+$inactividad_maxima = 600;
+
+if (isset($_SESSION['usuario']['ultimo_acceso'])
+    && (time() - $_SESSION['usuario']['ultimo_acceso']) > $inactividad_maxima) {
+    session_destroy();
+    header('Location: Loggin.php?inactividad=1');
+    exit;
+}
+```
+
+Cada vez que carga una página, el timestamp `$_SESSION['usuario']['ultimo_acceso']` se actualiza a `time()`, reiniciando el contador.
+
+<Tip>
+  Para evitar cierres inesperados, evite dejar formularios abiertos sin enviar por más de 10 minutos. Guarde su trabajo antes de ausentarse.
+</Tip>
+
+</Accordion>
+
+<Accordion title="¿Cómo agrego una nueva categoría de bien?">
+
+Vaya a **Categorías** en el menú lateral o acceda a `categorias.php`. Desde allí puede:
+
+- Crear una categoría raíz (sin padre).
+- Crear una subcategoría asignando una categoría existente en el campo `categoria_padre_id`.
+- Asignar un código único (campo `codigo`, p. ej. `MOB-001`).
+
+La tabla `categorias` admite jerarquía arbitraria mediante auto-referencia (`categoria_padre_id → categorias.id`).
+
+<Note>
+  El campo `codigo` tiene una restricción `UNIQUE KEY uk_categoria_codigo`. No puede existir dos categorías con el mismo código.
+</Note>
+
+</Accordion>
+
+<Accordion title="¿Puedo recuperar un bien desincorporado?">
+
+Sí. La desincorporación no elimina el registro — solo cambia el `estatus_id` del bien a `4` (Desincorporado) y registra la fecha y motivo en los campos `fecha_desincorporacion` y `motivo_desincorporacion`.
+
+Un usuario con rol `Administrador` puede editar el bien desde `editar_bien.php` y asignarle un nuevo estatus activo (p. ej. `estatus_id = 1` para "Activo").
+
+Si el bien fue marcado con `activo = 0` (eliminación lógica), también deberá restablecer ese campo.
+
+</Accordion>
+
+<Accordion title="¿Cómo exporto un respaldo de la base de datos?">
+
+La opción de respaldo está disponible en `configuracion.php`, que solo es visible para usuarios con rol `Administrador`.
+
+El menú lateral muestra el ítem **Configuración** condicionalmente:
+
+```php
+<?php if ($es_administrador): ?>
+    <li><a href="configuracion.php">
+        <i class="zmdi zmdi-settings"></i> Configuración
+    </a></li>
+<?php endif; ?>
+```
+
+Si no ve la opción en el menú, su cuenta tiene rol `Usuario` y no tiene permisos para acceder a esa sección.
+
+<Warning>
+  Guarde los respaldos en un almacenamiento externo seguro. La base de datos `bienes_nacionales_uptag` contiene información institucional sensible.
+</Warning>
+
+</Accordion>
+
+<Accordion title="¿Qué diferencia hay entre Administrador y Usuario?">
+
+El sistema define dos roles en el campo `usuarios.rol`:
+
+| Capacidad | Administrador | Usuario |
+|-----------|:---:|:---:|
+| Ver inventario y búsqueda | ✓ | ✓ |
+| Registrar nuevos bienes | ✓ | ✓ |
+| Editar bienes existentes | ✓ | ✓ |
+| Registrar movimientos | ✓ | ✓ |
+| Ver reportes | ✓ | ✓ |
+| Acceder a `configuracion.php` | ✓ | ✗ |
+| Gestionar usuarios (`gestion_usuarios.php`) | ✓ | ✗ |
+| Restablecer contraseñas de otros usuarios | ✓ | ✗ |
+| Reactivar bienes desincorporados | ✓ | ✗ |
+
+El rol se verifica desde la sesión:
+
+```php
+$es_administrador = ($_SESSION['usuario']['rol'] === 'Administrador');
+```
+
+</Accordion>
+
+<Accordion title="¿Cómo busco bienes en sub-ubicaciones?">
+
+Utilice la página `buscar.php` (accesible desde **Búsqueda de Bienes** en el menú lateral). La búsqueda soporta filtros por ubicación.
+
+Para ubicaciones específicas puede también usar `buscar_por_ubicacion.php`, que realiza una búsqueda recursiva dentro de la jerarquía de ubicaciones definida por la relación `ubicaciones.dependencia_id → dependencias.id`.
+
+<Tip>
+  Si necesita ver todos los bienes de una dependencia completa (incluyendo todas sus ubicaciones), filtre primero por `dependencia_id` y luego recorra las ubicaciones asociadas.
+</Tip>
+
+</Accordion>
+
+<Accordion title="¿Por qué no aparece la opción de Configuración en el menú?">
+
+La opción **Configuración** solo se muestra a usuarios con rol `Administrador`. Si su cuenta tiene rol `Usuario`, el ítem no aparece en el sidebar.
+
+Esto se controla en `header.php` y `home.php`:
+
+```php
+$es_administrador = ($_SESSION['usuario']['rol'] === 'Administrador');
+
+<?php if ($es_administrador): ?>
+    <li><a href="configuracion.php">Configuración</a></li>
+<?php endif; ?>
+```
+
+Si necesita acceso a esa sección, solicite a un administrador que cambie su rol en la tabla `usuarios`.
+
+</Accordion>
+
+<Accordion title="¿Cómo registro el traslado de un bien?">
+
+Vaya a **Gestión de Bienes → Registrar Movimiento** en el menú lateral o acceda a `registrar_movimiento.php`.
+
+Al registrar un traslado, complete los siguientes campos de la tabla `movimientos`:
+
+| Campo | Descripción |
+|-------|-------------|
+| `bien_id` | El bien a trasladar |
+| `tipo_movimiento` | Seleccione `Traslado` |
+| `ubicacion_origen_id` | Ubicación actual del bien |
+| `ubicacion_destino_id` | Ubicación de destino |
+| `responsable_origen_id` | Persona que entrega |
+| `responsable_destino_id` | Persona que recibe |
+| `fecha_movimiento` | Fecha del traslado |
+| `razon` | Justificación (campo obligatorio) |
+| `numero_documento` | Número del memo o acta |
+
+<Note>
+  Solo se pueden trasladar bienes cuyo estatus tenga `permite_movimiento = 1`. Los bienes con estatus "En Reparacion", "Desincorporado", "Extraviado" o "En Proceso de Desincorporacion" no pueden ser trasladados hasta que su estatus cambie.
+</Note>
+
+</Accordion>
+
+<Accordion title="¿Cómo genero un PDF del inventario?">
+
+Vaya a **Reportes → Inventario General** en el menú lateral o acceda a `generar_reporte_inventario.php`. Desde allí puede generar y descargar el reporte en formato PDF.
+
+También están disponibles (o en desarrollo):
+- `generar_reporte_movimientos.php` — Reporte de movimientos
+- `generar_reporte_ubicaciones.php` — Reporte por ubicación
+- `reporte_inventario.php`, `reporte_movimientos.php`, `reporte_ubicaciones.php`, `reporte_categorias.php` — Variantes adicionales
+- `pdf_movimiento.php` — PDF para un movimiento individual
+
+<Tip>
+  Los reportes de movimientos y ubicaciones aparecen comentados en el menú actual (`header.php`). Están disponibles como archivos PHP pero su enlace en el sidebar está desactivado en esta versión.
+</Tip>
+
+</Accordion>
+
+<Accordion title="¿Qué pasa si dos bienes tienen el mismo código?">
+
+No es posible. El campo `codigo_bien_nacional` de la tabla `bienes` tiene una restricción única:
+
+```sql
+UNIQUE KEY `uk_codigo_bien` (`codigo_bien_nacional`)
+```
+
+Si intenta registrar un bien con un código que ya existe, MySQL devolverá el error:
+
+```
+Error 1062: Duplicate entry 'CODIGO-XYZ' for key 'uk_codigo_bien'
+```
+
+El formulario `registrar_bien.php` debe validar que el código no exista antes de intentar el `INSERT`.
+
+<Warning>
+  Si está migrando datos desde un sistema anterior, verifique la unicidad de `codigo_bien_nacional` en el conjunto de datos fuente antes de importar. Un código duplicado abortará la inserción completa si no se usa `INSERT IGNORE` o manejo de excepciones.
+</Warning>
+
+</Accordion>
+
+</AccordionGroup>
